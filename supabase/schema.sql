@@ -39,6 +39,7 @@ create table if not exists public.renewals (
   value           numeric(10,2) not null default 0,
   commission      numeric(10,2) not null default 0,
   paid            boolean not null default true,
+  payment_method  text,                       -- método de pagamento (ver tabela payment_methods)
   notes           text,
   created_at      timestamptz not null default now()
 );
@@ -124,6 +125,27 @@ revoke all on public.type_costs from anon;
 grant select, insert, update, delete on public.type_costs to authenticated;
 grant select on public.type_costs to service_role;
 
+-- ---------- Métodos de pagamento ----------
+create table if not exists public.payment_methods (
+  name        text primary key,
+  sort_order  integer not null default 0,
+  created_at  timestamptz not null default now()
+);
+
+insert into public.payment_methods (name, sort_order) values
+  ('PP', 1), ('Skrill', 2), ('Di', 3), ('MG', 4), ('MBW/AB', 5), ('PREGO', 6), ('1x', 7), ('RV', 8)
+on conflict (name) do nothing;
+
+alter table public.payment_methods enable row level security;
+drop policy if exists "payment_methods: admins" on public.payment_methods;
+create policy "payment_methods: admins" on public.payment_methods
+  for all to authenticated
+  using ((select public.is_admin()))
+  with check ((select public.is_admin()));
+revoke all on public.payment_methods from anon;
+grant select, insert, update, delete on public.payment_methods to authenticated;
+grant select on public.payment_methods to service_role;
+
 -- ---------- Definições da aplicação (ex.: mensagem de aviso para WhatsApp) ----------
 create table if not exists public.app_settings (
   key         text primary key,
@@ -185,6 +207,7 @@ grant select on public.subscribers_status to authenticated, service_role;
 -- p_months permite reforços curtos (ex.: 1 ou 3 meses); null = período normal (6 ou 12).
 drop function if exists public.renew_subscriber(uuid, numeric, numeric, boolean, text, date);
 drop function if exists public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date);
+drop function if exists public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date, integer);
 create or replace function public.renew_subscriber(
   p_id            uuid,
   p_value         numeric default null,   -- null = Value atual
@@ -193,7 +216,8 @@ create or replace function public.renew_subscriber(
   p_notes         text default null,
   p_payment_date  date default null,      -- null = hoje
   p_start         date default null,      -- início do novo período (null = automático)
-  p_months        integer default null    -- duração em meses (null = 6 semestral / 12 anual)
+  p_months        integer default null,   -- duração em meses (null = 6 semestral / 12 anual)
+  p_method        text default null       -- método de pagamento
 )
 returns public.subscribers
 language plpgsql
@@ -221,8 +245,8 @@ begin
   v_fim := (v_ini + make_interval(months => v_mes))::date;
 
   -- value/commission do período normal mantêm-se; num reforço curto não alteram os valores de referência
-  insert into public.renewals (subscriber_id, payment_date, period_start, period_end, value, commission, paid, notes)
-  values (s.id, v_dt, v_ini, v_fim, coalesce(p_value, s.value), coalesce(p_commission, s.commission), p_paid, p_notes);
+  insert into public.renewals (subscriber_id, payment_date, period_start, period_end, value, commission, paid, payment_method, notes)
+  values (s.id, v_dt, v_ini, v_fim, coalesce(p_value, s.value), coalesce(p_commission, s.commission), p_paid, nullif(trim(p_method), ''), p_notes);
 
   perform set_config('app.in_renew', '1', true);   -- o log de auditoria regista só a renovação
   update public.subscribers
@@ -239,8 +263,8 @@ begin
   return s;
 end $$;
 
-revoke all on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date, integer) from public, anon;
-grant execute on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date, integer) to authenticated;
+revoke all on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date, integer, text) from public, anon;
+grant execute on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date, integer, text) to authenticated;
 
 -- ---------- Log de auditoria ----------
 -- Registado por triggers na base de dados: não depende da app e não pode ser alterado
@@ -344,7 +368,8 @@ begin
   select code into c from public.subscribers where id = new.subscriber_id;
   perform public.audit_write('renovar', 'renewal', new.id::text, c,
     jsonb_build_object('payment_date', new.payment_date, 'period_start', new.period_start, 'period_end', new.period_end,
-                       'value', new.value, 'commission', new.commission, 'paid', new.paid, 'notes', new.notes));
+                       'value', new.value, 'commission', new.commission, 'paid', new.paid,
+                       'payment_method', new.payment_method, 'notes', new.notes));
   return new;
 end $$;
 
@@ -359,10 +384,10 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare ent text := case tg_table_name when 'type_costs' then 'type_cost' else 'setting' end;
+declare ent text := case tg_table_name when 'type_costs' then 'type_cost' when 'payment_methods' then 'payment_method' else 'setting' end;
         rid text;
 begin
-  rid := coalesce(to_jsonb(new), to_jsonb(old)) ->> case when tg_table_name = 'type_costs' then 'type' else 'key' end;
+  rid := coalesce(to_jsonb(new), to_jsonb(old)) ->> case tg_table_name when 'type_costs' then 'type' when 'payment_methods' then 'name' else 'key' end;
   if tg_op = 'UPDATE' and public.audit_diff(to_jsonb(old), to_jsonb(new)) = '{}'::jsonb then return new; end if;
   perform public.audit_write('config', ent, rid, null,
     case tg_op
@@ -374,6 +399,9 @@ end $$;
 
 drop trigger if exists audit_type_costs on public.type_costs;
 create trigger audit_type_costs after insert or update or delete on public.type_costs
+  for each row execute function public.audit_config();
+drop trigger if exists audit_payment_methods on public.payment_methods;
+create trigger audit_payment_methods after insert or update or delete on public.payment_methods
   for each row execute function public.audit_config();
 drop trigger if exists audit_app_settings on public.app_settings;
 create trigger audit_app_settings after insert or update or delete on public.app_settings

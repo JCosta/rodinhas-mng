@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261402';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261416';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -9,7 +9,8 @@ const S = {
   custos: [],
   waTemplate: '',
   sel: new Set(),   // ids selecionados na lista
-  pagamentos: [],   // renovações dos últimos 12 meses (separador Financeiro)
+  pagamentos: [],
+  metodos: [],      // métodos de pagamento   // renovações dos últimos 12 meses (separador Financeiro)
   sort: { campo: 'payment_due_date', asc: true },
 };
 
@@ -123,13 +124,15 @@ async function carregar() {
     $('#login-erro').textContent = 'Esta conta não tem acesso de administrador.';
     return;
   }
-  const [r1, rc, rs, rp] = await Promise.all([
+  const [r1, rc, rs, rm, rp] = await Promise.all([
     sb.from('subscribers_status').select('*').order('payment_due_date'),
     sb.from('type_costs').select('*').order('type'),
     sb.from('app_settings').select('*').eq('key', 'whatsapp_template'),
-    sb.from('renewals').select('payment_date,value,commission,paid').gte('payment_date', somaMeses(hojeISO().slice(0, 8) + '01', -11)),
+    sb.from('payment_methods').select('name,sort_order').order('sort_order').order('name'),
+    sb.from('renewals').select('payment_date,value,commission,paid,payment_method').gte('payment_date', somaMeses(hojeISO().slice(0, 8) + '01', -11)),
   ]);
   S.erroCustos = rc.error ? rc.error.message : null;
+  S.metodos = rm.error ? [] : rm.data.map((m) => m.name);
   S.custos = rc.error ? [] : rc.data;
   S.waTemplate = (!rs.error && rs.data[0]?.value) || 'Olá {owner}! A sua subscrição {id} vence a {data} (daqui a {dias} dias). Valor da renovação: {valor}. Obrigado!';
   if (r1.error) {
@@ -263,6 +266,26 @@ function renderFinanceiro() {
   $('#fin-previsao').innerHTML = `<thead><tr><th>Mês</th><th class="num">Renovações</th><th class="num">A receber</th><th class="num">Comissões</th><th class="num">Custos</th><th class="num">Líquido</th></tr></thead>
     <tbody>${meses.map((m) => `<tr><td>${m.rot}</td><td class="num">${m.n}</td><td class="num">${eur(m.r)}</td><td class="num">${eur(m.c)}</td><td class="num">${eur(m.k)}</td><td class="num ${m.l < 0 ? 'neg' : ''}">${eur(m.l)}</td></tr>`).join('')}</tbody>
     <tfoot><tr><td>12 meses</td><td class="num">${tp.n}</td><td class="num">${eur(tp.r)}</td><td class="num">${eur(tp.c)}</td><td class="num">${eur(tp.k)}</td><td class="num ${tp.l < 0 ? 'neg' : ''}">${eur(tp.l)}</td></tr></tfoot>`;
+
+  // ---- por método de pagamento (12 meses, só pagos)
+  const mesAtual = hojeISO().slice(0, 7);
+  const porM = new Map();
+  for (const p of S.pagamentos) {
+    if (!p.paid) continue;
+    const k = p.payment_method || 'Sem método';
+    const x = porM.get(k) || { n: 0, v: 0, c: 0, mes: 0 };
+    x.n += 1; x.v += Number(p.value || 0); x.c += Number(p.commission || 0);
+    if (String(p.payment_date).slice(0, 7) === mesAtual) x.mes += Number(p.value || 0);
+    porM.set(k, x);
+  }
+  const ordem = [...S.metodos, 'Sem método'];
+  const metodosL = [...porM.entries()].sort((a, b) => (ordem.indexOf(a[0]) + 1 || 99) - (ordem.indexOf(b[0]) + 1 || 99));
+  const totM = metodosL.reduce((a, [, x]) => ({ n: a.n + x.n, v: a.v + x.v, c: a.c + x.c, mes: a.mes + x.mes }), { n: 0, v: 0, c: 0, mes: 0 });
+  const pct = (v) => (totM.v ? Math.round((v / totM.v) * 100) + '%' : '—');
+  $('#fin-metodos').innerHTML = `<thead><tr><th>Método</th><th class="num">Pagamentos</th><th class="num">Recebido</th><th class="num">% do total</th><th class="num">Comissões</th><th class="num">Recebido − comissões</th><th class="num">Este mês</th></tr></thead>
+    <tbody>${metodosL.map(([k, x]) => `<tr><td><b>${esc(k)}</b></td><td class="num">${x.n}</td><td class="num">${eur(x.v)}</td><td class="num">${pct(x.v)}</td><td class="num">${eur(x.c)}</td><td class="num">${eur(x.v - x.c)}</td><td class="num">${x.mes ? eur(x.mes) : '—'}</td></tr>`).join('')
+      || '<tr><td colspan="7" class="vazio">Ainda sem pagamentos registados.</td></tr>'}</tbody>
+    <tfoot><tr><td>Total</td><td class="num">${totM.n}</td><td class="num">${eur(totM.v)}</td><td class="num">${totM.v ? '100%' : '—'}</td><td class="num">${eur(totM.c)}</td><td class="num">${eur(totM.v - totM.c)}</td><td class="num">${totM.mes ? eur(totM.mes) : '—'}</td></tr></tfoot>`;
 
   // ---- histórico de pagamentos registados
   const hist = [];
@@ -475,9 +498,9 @@ async function abrirSub(id) {
   else if (!data.length) h.textContent = 'Ainda sem pagamentos registados aqui.';
   else {
     h.classList.remove('muted');
-    h.innerHTML = `<div class="scroll"><table class="tabela"><thead><tr><th>Data</th><th>Período</th><th class="num">Value</th><th class="num">Commission</th><th>Pago</th><th>Notas</th></tr></thead><tbody>
+    h.innerHTML = `<div class="scroll"><table class="tabela"><thead><tr><th>Data</th><th>Período</th><th class="num">Value</th><th class="num">Commission</th><th>Método</th><th>Pago</th><th>Notas</th></tr></thead><tbody>
       ${data.map((r) => `<tr><td>${fmtData(r.payment_date)}</td><td>${fmtData(r.period_start)} → ${fmtData(r.period_end)}</td>
-        <td class="num">${eur(r.value)}</td><td class="num">${eur(r.commission)}</td>
+        <td class="num">${eur(r.value)}</td><td class="num">${eur(r.commission)}</td><td>${esc(r.payment_method || '—')}</td>
         <td>${r.paid ? 'Sim' : '<span class="badge a_terminar">Não</span>'}</td><td>${esc(r.notes || '')}</td></tr>`).join('')}
     </tbody></table></div>`;
   }
@@ -499,6 +522,7 @@ function abrirRenovar(id) {
         ${[12, 6, 3, 1].filter((m) => m !== mesesDe(s.periodicity)).map((m) => `<option value="${m}">Reforço de ${m} ${m === 1 ? 'mês' : 'meses'}</option>`).join('')}</select></label>
       <label>Value a cobrar (editável)<input name="value" type="number" step="0.01" min="0" value="${esc(s.value)}"></label>
       <label>Commission (editável)<input name="commission" type="number" step="0.01" min="0" value="${esc(s.commission)}"></label>
+      <label>Método de pagamento<select name="method"><option value="">— escolher —</option>${S.metodos.map((m) => `<option>${esc(m)}</option>`).join('')}</select></label>
       <label>Data do pagamento<input name="payment_date" type="date" value="${hoje}"></label>
       <label>Início do novo período<input name="start" type="date" required></label>
       <label class="check full"><input type="checkbox" name="paid" checked> Já está pago</label>
@@ -546,6 +570,7 @@ function abrirRenovar(id) {
       p_payment_date: f.get('payment_date') || null,
       p_start: f.get('start'),
       p_months: form.meses.value ? Number(form.meses.value) : null,
+      p_method: f.get('method') || null,
     });
     if (error) { e.target.disabled = false; return toast('Erro ao renovar: ' + error.message, true); }
     fecharModal();
@@ -753,6 +778,7 @@ $('#btn-importar').addEventListener('click', async (e) => {
 
 // ---------------------------------------------------------------- configuração: custos por Type
 function renderConfig() {
+  renderMetodos();
   if (document.activeElement !== $('#wa-template')) { $('#wa-template').value = S.waTemplate; previewWA(); }
   const cont = (t) => S.subs.filter((s) => s.type === t).length;
   if (S.erroCustos) {
@@ -801,6 +827,32 @@ $('#btn-add-custo').addEventListener('click', async () => {
   if (error) return toast(error.code === '23505' ? `O Type ${type} já existe.` : 'Erro: ' + error.message, true);
   $('#novo-type').value = ''; $('#novo-custo').value = '';
   toast(`Custo de ${type} adicionado.`);
+  carregar();
+});
+
+// ---------------------------------------------------------------- configuração: métodos de pagamento
+function renderMetodos() {
+  const usados = (m) => S.pagamentos.filter((p) => p.payment_method === m).length;
+  $('#tabela-metodos tbody').innerHTML = S.metodos.map((m) => `<tr><td><b>${esc(m)}</b></td><td class="num">${usados(m)}</td>
+      <td><div class="acoes"><button class="btn sm ghost danger" data-apagar-metodo="${esc(m)}">Apagar</button></div></td></tr>`).join('')
+    || '<tr><td colspan="3" class="vazio">Sem métodos definidos.</td></tr>';
+}
+$('#tabela-metodos').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-apagar-metodo]');
+  if (!b) return;
+  const m = b.dataset.apagarMetodo;
+  if (!(await confirmar('Apagar método', `Retirar <b>${esc(m)}</b> da lista? Os pagamentos já registados com este método mantêm-no.`, 'Apagar'))) return;
+  const { error } = await sb.from('payment_methods').delete().eq('name', m);
+  if (error) return toast('Erro: ' + error.message, true);
+  carregar();
+});
+$('#btn-add-metodo').addEventListener('click', async () => {
+  const name = $('#novo-metodo').value.trim();
+  if (!name) return toast('Indica o nome do método.', true);
+  const { error } = await sb.from('payment_methods').insert({ name, sort_order: S.metodos.length + 1 });
+  if (error) return toast(error.code === '23505' ? `${name} já existe.` : 'Erro: ' + error.message, true);
+  $('#novo-metodo').value = '';
+  toast(`Método ${name} adicionado.`);
   carregar();
 });
 
@@ -881,12 +933,12 @@ function detalhesAud(r) {
     }
     case 'editar': return difs(d);
     case 'renovar':
-      return `Pagamento a <b>${fmtData(d.payment_date)}</b> · período ${fmtData(d.period_start)} → <b>${fmtData(d.period_end)}</b> · Value <b>${eur(d.value)}</b> · Commission ${eur(d.commission)} · ${d.paid ? 'pago' : '<b>não pago</b>'}${d.notes ? ' · ' + esc(d.notes) : ''}`;
+      return `Pagamento a <b>${fmtData(d.payment_date)}</b> · período ${fmtData(d.period_start)} → <b>${fmtData(d.period_end)}</b> · Value <b>${eur(d.value)}</b> · Commission ${eur(d.commission)} · ${d.payment_method ? 'método <b>' + esc(d.payment_method) + '</b> · ' : ''}${d.paid ? 'pago' : '<b>não pago</b>'}${d.notes ? ' · ' + esc(d.notes) : ''}`;
     case 'aviso': return 'Mensagem de aviso copiada para o WhatsApp';
     case 'ligar': return 'Mantido ligado com o pagamento em atraso';
     case 'desligar': return 'Passou a desligado';
     case 'config': {
-      const alvo = r.entity === 'type_cost' ? `Custo do Type <b>${esc(r.record_id)}</b>` : `Definição <b>${r.record_id === 'whatsapp_template' ? 'mensagem de WhatsApp' : esc(r.record_id)}</b>`;
+      const alvo = r.entity === 'type_cost' ? `Custo do Type <b>${esc(r.record_id)}</b>` : r.entity === 'payment_method' ? `Método de pagamento <b>${esc(r.record_id)}</b>` : `Definição <b>${r.record_id === 'whatsapp_template' ? 'mensagem de WhatsApp' : esc(r.record_id)}</b>`;
       if (d.op === 'criar') return `${alvo} criado(a): ${lista(d.novo || {})}`;
       if (d.op === 'apagar') return `${alvo} apagado(a)`;
       return `${alvo}<br>${difs(d['alterações'] || {})}`;

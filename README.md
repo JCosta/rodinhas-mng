@@ -30,6 +30,8 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 
 **Auditoria:** todas as ações (criar, editar, renovar, apagar, avisos, manter ligado/desligar, configuração) ficam registadas na tabela `audit_log` por triggers da base de dados, com utilizador e data/hora. O registo é só de leitura: não pode ser alterado nem apagado a partir da app.
 
+**Métodos de pagamento:** escolhidos ao renovar (lista editável em Configuração, tabela `payment_methods`); o Financeiro mostra os totais por método.
+
 **Aviso por WhatsApp:** nos subscritores a vencer, o botão **Copiar mensagem** copia um texto pronto a colar no WhatsApp do contacto e regista a data do aviso. O texto edita-se em **Configuração** (guardado na tabela `app_settings`).
 
 Os valores são mostrados sem símbolo de moeda.

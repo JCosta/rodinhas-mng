@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Gestão de Avenças</title>
-  <link rel="stylesheet" href="styles.css?v=202611261402">
+  <link rel="stylesheet" href="styles.css?v=202611261416">
 </head>
 <body>
   <!-- Login -->
@@ -72,6 +72,10 @@
           <div class="card-head"><h2>Previsão dos próximos 12 meses</h2><span class="muted">pelas datas de renovação · assume que todos os ligados renovam</span></div>
           <div id="fin-meses" class="meses"></div>
           <div class="scroll" style="border:none;max-height:none;margin-top:14px"><table class="tabela" id="fin-previsao"></table></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Por método de pagamento</h2><span class="muted">pagamentos registados como pagos · últimos 12 meses</span></div>
+          <div class="scroll" style="border:none;max-height:none"><table class="tabela" id="fin-metodos"></table></div>
         </div>
         <div class="card">
           <div class="card-head"><h2>Pagamentos registados</h2><span class="muted">últimos 12 meses · pelas renovações registadas na app</span></div>
@@ -175,6 +179,18 @@
           <p id="aviso-tipos" class="muted small"></p>
         </div>
         <div class="card" style="max-width:640px">
+          <h2>Métodos de pagamento</h2>
+          <p class="muted">Opções do campo "Método de pagamento" ao renovar.</p>
+          <table class="tabela" id="tabela-metodos">
+            <thead><tr><th>Método</th><th class="num">Pagamentos (12 meses)</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="row">
+            <input id="novo-metodo" placeholder="Novo método" style="max-width:180px">
+            <button id="btn-add-metodo" class="btn">Adicionar</button>
+          </div>
+        </div>
+        <div class="card" style="max-width:640px">
           <h2>Mensagem de aviso (WhatsApp)</h2>
           <p class="muted">Texto copiado pelo botão <b>Copiar mensagem</b> dos subscritores a vencer, para colares no WhatsApp. Campos disponíveis:
             <code>{owner}</code> <code>{id}</code> <code>{data}</code> <code>{dias}</code> <code>{valor}</code> <code>{type}</code> <code>{hw}</code></p>
@@ -223,6 +239,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="app.js?v=202611261402"></script>
+  <script type="module" src="app.js?v=202611261416"></script>
 </body>
 </html>
