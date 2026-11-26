@@ -97,6 +97,21 @@
         <div class="card">
           <h2>Importar da folha de cálculo</h2>
           <p class="muted">Escolhe um ficheiro <b>.xlsx</b>, <b>.xls</b> ou <b>.csv</b>. A primeira linha deve ter os nomes das colunas. Depois confirmas a correspondência de cada coluna.</p>
+          <div class="row" style="margin-top:0;margin-bottom:14px">
+            <button id="btn-modelo" class="btn">⬇ Descarregar modelo (.xlsx)</button>
+            <span class="muted small">Folha com as colunas certas e duas linhas de exemplo, pronta a preencher.</span>
+          </div>
+          <details class="exemplo">
+            <summary>Ver exemplo do formato</summary>
+            <div class="scroll" style="margin-top:10px"><table class="tabela" id="tabela-exemplo"></table></div>
+            <ul class="muted small">
+              <li><b>Obrigatório:</b> ID e PaymentDueDate (ou LastPaymentDate, de onde se calcula o PaymentDueDate).</li>
+              <li><b>Datas:</b> data do Excel, dd/mm/aaaa ou aaaa-mm-dd. <b>Valores:</b> 120, 120,50 ou 1.234,56 €.</li>
+              <li><b>Periodicity:</b> semestral ou anual. Se a coluna não existir, assume semestral.</li>
+              <li>Se o ID já existir na plataforma, o subscritor é atualizado em vez de duplicado.</li>
+            </ul>
+          </details>
+          <h3>Importar ficheiro</h3>
           <input id="ficheiro" type="file" accept=".xlsx,.xls,.csv">
           <div id="import-mapa" class="hidden">
             <h3>Correspondência de colunas</h3>

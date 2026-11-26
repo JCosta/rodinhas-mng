@@ -418,11 +418,41 @@ const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toL
 
 let IMP = { cab: [], linhas: [] };
 
+// ---------- modelo / exemplo ----------
+const MODELO_CAB = ['ID', 'PaymentDueDate', 'LastPaymentDate', 'Value', 'Comission', 'Owner', 'Type', 'HW', 'Periodicity', 'Notes'];
+function modeloLinhas() {
+  const h = hojeISO();
+  const ultimo1 = somaMeses(h, -2), ultimo2 = somaMeses(h, -5);
+  return [
+    ['EXEMPLO-1', proximoVenc(ultimo1, 'semestral'), ultimo1, 120, 12, 'Ana Silva', 'Pro', HW_OPCOES[0] || 'Router X1', 'semestral', ''],
+    ['EXEMPLO-2', proximoVenc(ultimo2, 'anual'), ultimo2, 300, 30, 'Rui Costa', 'Basic', HW_OPCOES[1] || HW_OPCOES[0] || 'Box X2', 'anual', 'Paga por transferência'],
+  ];
+}
+const XLSX_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
+
+$('#tabela-exemplo').innerHTML = `<thead><tr>${MODELO_CAB.map((c) => `<th>${c}</th>`).join('')}</tr></thead>
+  <tbody>${modeloLinhas().map((l) => `<tr>${l.map((v, i) => `<td>${esc(i === 1 || i === 2 ? fmtData(v) : (i === 3 || i === 4) ? String(v).replace('.', ',') : v)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+
+$('#btn-modelo').addEventListener('click', async () => {
+  try {
+    const XLSX = await import(XLSX_URL);
+    const toDate = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
+    const dados = [MODELO_CAB, ...modeloLinhas().map((l) => l.map((v, i) => (i === 1 || i === 2) ? toDate(v) : v))];
+    const ws = XLSX.utils.aoa_to_sheet(dados, { cellDates: true, dateNF: 'dd/mm/yyyy' });
+    ws['!cols'] = [10, 16, 16, 10, 12, 18, 14, 16, 12, 28].map((w) => ({ wch: w }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Subscritores');
+    XLSX.writeFile(wb, 'modelo-subscritores.xlsx');
+  } catch (err) {
+    toast('Não consegui gerar o modelo: ' + err.message, true);
+  }
+});
+
 $('#ficheiro').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   try {
-    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
+    const XLSX = await import(XLSX_URL);
     const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
