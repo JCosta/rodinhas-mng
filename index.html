@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Gestão de Avenças</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Login -->
+  <section id="login-view" class="login hidden">
+    <form id="login-form" class="login-card">
+      <h1>Gestão de Avenças</h1>
+      <p class="muted">Entra com a tua conta.</p>
+      <label>Email <input type="email" name="email" required autocomplete="username"></label>
+      <label>Password <input type="password" name="password" required autocomplete="current-password"></label>
+      <button type="submit" class="btn primary">Entrar</button>
+      <p id="login-erro" class="erro"></p>
+    </form>
+  </section>
+
+  <!-- App -->
+  <div id="app-view" class="hidden">
+    <header class="topbar">
+      <div class="brand">Gestão de Avenças</div>
+      <nav class="tabs">
+        <button data-tab="painel" class="tab active">Painel</button>
+        <button data-tab="clientes" class="tab">Subscritores</button>
+        <button data-tab="importar" class="tab">Importar</button>
+      </nav>
+      <div class="user"><span id="user-email" class="muted"></span><button id="logout" class="btn ghost sm">Sair</button></div>
+    </header>
+
+    <main>
+      <!-- Painel -->
+      <section id="tab-painel" class="tab-panel">
+        <div class="kpis" id="kpis"></div>
+        <div class="grid2">
+          <div class="card">
+            <div class="card-head"><h2>A vencer</h2><span class="muted" id="aviso-dias"></span></div>
+            <div id="lista-a-terminar"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Em atraso</h2><span class="muted">por receber</span></div>
+            <div id="lista-expirados"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Renovações nos próximos 12 meses</h2><span class="muted">valor a receber por mês</span></div>
+          <div id="meses" class="meses"></div>
+        </div>
+      </section>
+
+      <!-- Clientes -->
+      <section id="tab-clientes" class="tab-panel hidden">
+        <div class="toolbar">
+          <input id="f-pesquisa" type="search" placeholder="Pesquisar ID, owner, type, HW, notas…">
+          <select id="f-estado">
+            <option value="">Todos os estados</option>
+            <option value="ativo">Ativo</option>
+            <option value="a_terminar">A terminar</option>
+            <option value="expirado">Expirado</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+          <select id="f-owner"><option value="">Todos os owners</option></select>
+          <select id="f-type"><option value="">Todos os types</option></select>
+          <select id="f-hw"><option value="">Todos os HW</option></select>
+          <span class="spacer"></span>
+          <button id="btn-exportar" class="btn ghost">Exportar CSV</button>
+          <button id="btn-novo" class="btn primary">+ Novo subscritor</button>
+        </div>
+        <div class="card flush">
+          <table class="tabela">
+            <thead><tr>
+              <th data-sort="code">ID</th>
+              <th data-sort="owner">Owner</th>
+              <th data-sort="type">Type</th>
+              <th data-sort="hw">HW</th>
+              <th data-sort="periodicity">Avença</th>
+              <th data-sort="value" class="num">Value</th>
+              <th data-sort="commission" class="num">Commission</th>
+              <th data-sort="last_payment_date">Last Payment</th>
+              <th data-sort="payment_due_date">Payment Due</th>
+              <th data-sort="days_left" class="num">Dias</th>
+              <th>Estado</th>
+              <th></th>
+            </tr></thead>
+            <tbody id="tbody-clientes"></tbody>
+          </table>
+          <p id="vazio-clientes" class="vazio hidden">Sem subscritores para mostrar.</p>
+        </div>
+      </section>
+
+      <!-- Importar -->
+      <section id="tab-importar" class="tab-panel hidden">
+        <div class="card">
+          <h2>Importar da folha de cálculo</h2>
+          <p class="muted">Escolhe um ficheiro <b>.xlsx</b>, <b>.xls</b> ou <b>.csv</b>. A primeira linha deve ter os nomes das colunas. Depois confirmas a correspondência de cada coluna.</p>
+          <input id="ficheiro" type="file" accept=".xlsx,.xls,.csv">
+          <div id="import-mapa" class="hidden">
+            <h3>Correspondência de colunas</h3>
+            <div id="mapa-campos" class="mapa"></div>
+            <p class="muted small">Se a folha não tiver PaymentDueDate, é calculado a partir do LastPaymentDate + 6 ou 12 meses. Se já existir um subscritor com o mesmo ID, os dados dele são atualizados.</p>
+            <h3>Pré-visualização</h3>
+            <div class="scroll"><table class="tabela" id="preview"></table></div>
+            <div class="row">
+              <button id="btn-importar" class="btn primary">Importar</button>
+              <span id="import-info" class="muted"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal genérico -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <div class="modal-head"><h2 id="modal-titulo"></h2><button class="btn ghost sm" data-close>✕</button></div>
+      <div id="modal-corpo"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
