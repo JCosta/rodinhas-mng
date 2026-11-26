@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS } from './config.js?v=202611261556';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS } from './config.js?v=202611261613';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -73,7 +73,38 @@ const unicos = (campo) => [...new Set(S.subs.map((s) => s[campo]).filter(Boolean
 // Cor por Type (definida em Configuração / tabela type_costs)
 const corType = (t) => (t && S.custos.find((c) => c.type === t)?.color) || null;
 const estiloType = (t) => { const c = corType(t); return c && /^#[0-9a-f]{3,8}$/i.test(c) ? ` style="--tc:${c}"` : ''; };
+const INI_CORES = ['#257de0', '#f47230', '#00b894', '#6a4ce2', '#ee7fac', '#008a17', '#ec4647', '#f2a600'];
+function avatar(nome) {
+  const n = String(nome || '').trim();
+  if (!n) return '';
+  const p = n.split(/\s+/).filter((x) => /[\p{L}\d]/u.test(x));
+  const ini = ((p[0]?.[0] || '') + (p.length > 1 ? p[p.length - 1][0] : (p[0]?.[1] || ''))).toUpperCase();
+  let h = 0; for (const ch of n) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return `<span class="avatar" style="--av:${INI_CORES[h % INI_CORES.length]}" aria-hidden="true">${esc(ini)}</span>`;
+}
 const chipType = (t) => (t ? `<span class="tchip"${estiloType(t)}>${esc(t)}</span>` : '');
+
+// ---------------------------------------------------------------- apagar com "Desfazer"
+// A eliminação só é enviada ao fim de alguns segundos; até lá pode ser anulada.
+const DESFAZER_MS = 8000;
+let pendente = null;   // { executar, timer }
+function comDesfazer(msg, esconder, executar) {
+  if (pendente) { clearTimeout(pendente.timer); pendente.executar(); }   // confirma a anterior
+  esconder();
+  const t = $('#toast-desfazer');
+  t.innerHTML = `<span>${esc(msg)}</span><button class="btn sm" type="button">Desfazer</button><i style="animation-duration:${DESFAZER_MS}ms"></i>`;
+  t.classList.remove('hidden');
+  const fim = () => { t.classList.add('hidden'); pendente = null; };
+  const p = {
+    executar: async () => { fim(); const erro = await executar(); if (erro) toast('Erro ao apagar: ' + erro.message, true); carregar(); },
+    timer: null,
+  };
+  p.timer = setTimeout(p.executar, DESFAZER_MS);
+  $('button', t).onclick = () => { clearTimeout(p.timer); fim(); toast('Anulado.'); carregar(); };
+  pendente = p;
+}
+// se a página for fechada com uma eliminação pendente, envia-a na mesma
+window.addEventListener('pagehide', () => { if (pendente) { clearTimeout(pendente.timer); pendente.executar(); } });
 
 // ---------------------------------------------------------------- modal
 function abrirModal(tit, html) {
@@ -108,7 +139,7 @@ function mostrar(session) {
   $('#app-view').classList.toggle('hidden', !session);
   if (session) {
     $('#user-email').textContent = session.user.email;
-    if (!carregado) { carregado = true; carregar(); }
+    if (!carregado) { carregado = true; esqueleto(); carregar(); }
   } else {
     carregado = false;
     S.subs = [];
@@ -124,6 +155,16 @@ $('#login-form').addEventListener('submit', async (e) => {
   if (error) $('#login-erro').textContent = 'Email ou password inválidos.';
 });
 $('#logout').addEventListener('click', () => sb.auth.signOut());
+
+// Estrutura da página enquanto os dados carregam
+function esqueleto() {
+  $('#kpis').innerHTML = Array.from({ length: 5 }, () => '<div class="kpi sk"><i class="skl w40"></i><i class="skl w20 big"></i><i class="skl w60"></i></div>').join('');
+  $('#hoje').innerHTML = '<i class="skl w20"></i>' + Array.from({ length: 3 }, () => '<div class="acao"><i class="skl w80"></i></div>').join('');
+  ['#lista-a-terminar', '#lista-em-atraso', '#lista-desligados', '#lista-arquivados', '#lista-por-receber'].forEach((id) => {
+    $(id).innerHTML = Array.from({ length: 2 }, () => '<div class="item"><div class="who"><i class="skl w60"></i><i class="skl w40"></i></div></div>').join('');
+  });
+  $('#tbody-clientes').innerHTML = Array.from({ length: 6 }, () => `<tr>${'<td><i class="skl w80"></i></td>'.repeat(8)}</tr>`).join('');
+}
 
 // ---------------------------------------------------------------- dados
 async function carregar() {
@@ -159,6 +200,7 @@ async function carregar() {
   renderPainel();
   renderLista();
   renderFinanceiro();
+  renderCalendario();
 }
 
 function preencherFiltros() {
@@ -174,6 +216,7 @@ $$('.tab').forEach((b) => b.addEventListener('click', () => {
   $$('.tab').forEach((x) => x.classList.toggle('active', x === b));
   $$('.tab-panel').forEach((p) => p.classList.toggle('hidden', p.id !== 'tab-' + b.dataset.tab));
   if (b.dataset.tab === 'auditoria') carregarAuditoria(true);
+  if (b.dataset.tab === 'financeiro') renderFinanceiro();   // gráficos precisam da largura visível
 }));
 
 // ---------------------------------------------------------------- painel (só operacional)
@@ -238,7 +281,7 @@ function renderPainel() {
   $('#aviso-dias').textContent = `próximos ${DIAS_AVISO} dias`;
   const item = (s, extra = '') => `<div class="item"${estiloType(s.type)}>
       <div class="who"><b data-editar="${s.id}">${chipType(s.type)} ${realcar(s.code, q)}${s.owner ? ' · ' + realcar(s.owner, q) : ''}</b>${recontactar(s) ? `<span class="recontactar" title="Mensagem copiada a ${fmtData(s.last_notified_at)}">🔁 voltar a contactar</span>` : ''}<span>${[s.hw, PER[s.periodicity]].filter(Boolean).map(esc).join(' · ')} · ${s.payment_due_date ? (s.days_left < 0 ? 'venceu ' : 'vence ') + fmtData(s.payment_due_date) : 'sem data de pagamento'}${s.status === 'em_atraso' ? (s.keep_active_until ? ` · <span class="tolerado">tolerado até ${fmtData(s.keep_active_until)}</span>` : ' · tolerado sem prazo') : ''}</span></div>
-      <div class="dias ${s.status === 'a_terminar' ? urgencia(s) : ''}">${textoDias(s)}</div>${extra}
+      <div class="dias ${s.status === 'a_terminar' ? urgencia(s) : ''}">${textoDias(s)}${s.status === 'a_terminar' || s.status === 'ativo' ? barraProg(s) : ''}</div>${extra}
       <button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button></div>`;
   const bManter = (s) => `<button class="btn sm ghost" data-manter="${s.id}" title="Continua com serviço apesar do pagamento em atraso">Manter ligado</button>`;
   const bDesligar = (s) => `<button class="btn sm ghost danger" data-desligar="${s.id}" title="Passa para Desligados">Desligar</button>`;
@@ -273,6 +316,19 @@ function renderPainel() {
 
 // ---------- urgência, avisos e caixa "Hoje"
 /** a_terminar: vermelho ≤ 7 dias, laranja ≤ 15, amarelo ≤ 30 */
+/** Quanto do período atual já passou (0–1); null sem data */
+function progresso(s) {
+  if (!s.payment_due_date) return null;
+  const ini = somaMeses(s.payment_due_date, -mesesDe(s.periodicity));
+  const total = diasEntre(ini, s.payment_due_date) || 1;
+  return Math.max(0, Math.min(1, diasEntre(ini, hojeISO()) / total));
+}
+function barraProg(s) {
+  const p = progresso(s);
+  if (p === null || s.status === 'cancelado') return '';
+  const cls = p >= 0.9 ? 'p-bad' : p >= 0.7 ? 'p-warn' : 'p-ok';
+  return `<span class="prog" title="${Math.round(p * 100)}% do período ${s.periodicity === 'anual' ? 'anual' : 'semestral'} já passou"><i class="${cls}" style="width:${Math.round(p * 100)}%"></i></span>`;
+}
 const urgencia = (s) => (s.days_left <= 7 ? 'u1' : s.days_left <= 15 ? 'u2' : 'u3');
 /** Avisado neste ciclo de renovação (mensagem copiada nos 45 dias antes do vencimento ou depois) */
 const avisadoNoCiclo = (s) => !!(s.last_notified_at && s.payment_due_date && s.last_notified_at >= somaDiasISO(s.payment_due_date, -(DIAS_AVISO + 15)));
@@ -384,6 +440,100 @@ document.addEventListener('click', (e) => {
   });
 });
 
+// ---------------------------------------------------------------- gráficos (SVG simples, sem bibliotecas)
+/** Linha de uma série (12 meses) com eixo recessivo e tooltip por mês */
+function graficoLinha(el, pts) {
+  if (!el) return;
+  const W = Math.max(300, Math.round(el.clientWidth || 720)), H = W < 500 ? 180 : 220, mE = 46, mD = 12, mT = 14, mB = 26;
+  const max = Math.max(1, ...pts.map((p) => p.v));
+  const passo = Math.pow(10, Math.floor(Math.log10(max))) / 2;
+  const topo = Math.ceil(max / passo) * passo;
+  const x = (i) => mE + (i * (W - mE - mD)) / Math.max(1, pts.length - 1);
+  const y = (v) => mT + (H - mT - mB) * (1 - v / topo);
+  const ticks = [0, topo / 2, topo];
+  const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="graf" role="img" aria-label="Recebido por mês nos últimos 12 meses">
+      ${ticks.map((t) => `<line x1="${mE}" x2="${W - mD}" y1="${y(t)}" y2="${y(t)}" class="g-grid"/><text x="${mE - 8}" y="${y(t) + 4}" class="g-eixo" text-anchor="end">${Math.round(t).toLocaleString('pt-PT')}</text>`).join('')}
+      ${pts.map((p, i) => (i % (W < 500 ? 3 : 2) === 0 || pts.length <= 6 ? `<text x="${x(i)}" y="${H - 8}" class="g-eixo" text-anchor="middle">${esc(p.rot)}</text>` : '')).join('')}
+      <path d="${d} L${x(pts.length - 1)},${y(0)} L${x(0)},${y(0)} Z" class="g-area"/>
+      <path d="${d}" class="g-linha"/>
+      ${pts.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.v)}" r="4" class="g-ponto"/>`).join('')}
+      <line class="g-cruz hidden" y1="${mT}" y2="${y(0)}"/>
+      ${pts.map((p, i) => `<rect x="${x(i) - (W - mE - mD) / (2 * (pts.length - 1))}" y="0" width="${(W - mE - mD) / (pts.length - 1)}" height="${H}" fill="transparent" data-i="${i}"/>`).join('')}
+    </svg><div class="g-tip hidden"></div>`;
+  const svg = $('svg', el), tip = $('.g-tip', el), cruz = $('.g-cruz', el);
+  svg.addEventListener('pointermove', (e) => {
+    const r = e.target.closest('rect[data-i]');
+    if (!r) return;
+    const i = Number(r.dataset.i), p = pts[i];
+    cruz.setAttribute('x1', x(i)); cruz.setAttribute('x2', x(i)); cruz.classList.remove('hidden');
+    tip.innerHTML = `<b>${esc(p.rot)}</b><br>Recebido: <b>${eur(p.v)}</b><br>${p.n} pagamento${p.n === 1 ? '' : 's'}`;
+    const bb = svg.getBoundingClientRect();
+    tip.style.left = `${Math.min(bb.width - 150, Math.max(0, (x(i) / W) * bb.width - 70))}px`;
+    tip.style.top = `${Math.max(0, (y(p.v) / H) * bb.height - 70)}px`;
+    tip.classList.remove('hidden');
+  });
+  svg.addEventListener('pointerleave', () => { tip.classList.add('hidden'); cruz.classList.add('hidden'); });
+}
+/** Barras horizontais com nome e valor escritos (sem depender só da cor) */
+function barrasH(el, itens, unidade) {
+  if (!el) return;
+  if (!itens.length) { el.innerHTML = '<p class="vazio">Sem dados.</p>'; return; }
+  const max = Math.max(1, ...itens.map((x) => Math.abs(x.v)));
+  const tot = itens.reduce((t, x) => t + x.v, 0);
+  el.innerHTML = `<div class="barras" role="list" aria-label="${esc(unidade)}">${itens.map((x) => `
+    <div class="barra-l" role="listitem" title="${esc(x.rot)}: ${eur(x.v)} ${esc(unidade)}${x.sub ? ' · ' + esc(x.sub) : ''}">
+      <span class="b-rot">${esc(x.rot)}<small>${esc(x.sub || '')}</small></span>
+      <span class="b-pista"><i style="width:${Math.max(1, (Math.abs(x.v) / max) * 100)}%;background:${x.cor || 'var(--off)'}" class="${x.v < 0 ? 'neg' : ''}"></i></span>
+      <span class="b-val">${eur(x.v)}${tot > 0 && x.v >= 0 ? `<small>${Math.round((x.v / tot) * 100)}%</small>` : ''}</span>
+    </div>`).join('')}</div>`;
+}
+
+let tRes;
+window.addEventListener('resize', () => { clearTimeout(tRes); tRes = setTimeout(() => { if (!$('#tab-financeiro').classList.contains('hidden')) renderFinanceiro(); }, 200); });
+
+// ---------------------------------------------------------------- calendário de vencimentos
+let calMes = hojeISO().slice(0, 7), calDia = null;
+function renderCalendario() {
+  const [y, m] = calMes.split('-').map(Number);
+  const primeiro = new Date(Date.UTC(y, m - 1, 1));
+  const diasMes = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const offset = (primeiro.getUTCDay() + 6) % 7;   // segunda-feira primeiro
+  const doMes = S.subs.filter((s) => s.payment_due_date && s.payment_due_date.slice(0, 7) === calMes && s.status !== 'cancelado');
+  const porDia = new Map();
+  for (const s of doMes) { const d = Number(s.payment_due_date.slice(8, 10)); porDia.set(d, [...(porDia.get(d) || []), s]); }
+  const hoje = hojeISO();
+  $('#cal-titulo').textContent = primeiro.toLocaleDateString('pt-PT', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  $('#cal-resumo').textContent = `${doMes.length} vencimento${doMes.length === 1 ? '' : 's'} · ${eur(doMes.reduce((t, s) => t + Number(s.value || 0), 0))}`;
+  let html = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((d) => `<div class="cal-sem">${d}</div>`).join('');
+  html += '<div class="cal-vazio"></div>'.repeat(offset);
+  for (let d = 1; d <= diasMes; d++) {
+    const iso = `${calMes}-${String(d).padStart(2, '0')}`;
+    const lista = porDia.get(d) || [];
+    html += `<button type="button" class="cal-dia${iso === hoje ? ' hoje' : ''}${calDia === iso ? ' sel' : ''}${lista.length ? ' tem' : ''}" data-dia="${iso}">
+      <span class="n">${d}</span>
+      <span class="pts">${lista.slice(0, 4).map((s) => `<span class="pt"${estiloType(s.type)} title="${esc(s.code)}"><span class="lbl">${esc(s.code)}</span></span>`).join('')}${lista.length > 4 ? `<span class="mais">+${lista.length - 4}</span>` : ''}</span></button>`;
+  }
+  $('#cal-grelha').innerHTML = html;
+  const sel = calDia && calDia.slice(0, 7) === calMes ? calDia : null;
+  const lista = sel ? (porDia.get(Number(sel.slice(8, 10))) || []) : doMes.sort((a, b) => (a.payment_due_date < b.payment_due_date ? -1 : 1));
+  $('#cal-lista-titulo').textContent = sel ? `Vencimentos a ${fmtData(sel)}` : 'Todos os vencimentos do mês';
+  $('#cal-lista').innerHTML = lista.map((s) => `<div class="item"${estiloType(s.type)}>
+      <div class="who"><b data-editar="${s.id}">${chipType(s.type)} ${esc(s.code)}${s.owner ? ' · ' + esc(s.owner) : ''}</b><span>${fmtData(s.payment_due_date)} · ${PER[s.periodicity]} · ${eur(s.value)}</span></div>
+      <div class="dias">${badge(s.status)}</div>
+      ${s.status === 'a_terminar' || s.status === 'em_atraso' ? botaoWA(s) : ''}<button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button></div>`).join('')
+    || '<p class="vazio">Sem vencimentos.</p>';
+}
+$('#cal-grelha').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-dia]');
+  if (!b) return;
+  calDia = calDia === b.dataset.dia ? null : b.dataset.dia;
+  renderCalendario();
+});
+$('#cal-ant').addEventListener('click', () => { calMes = somaMeses(calMes + '-01', -1).slice(0, 7); calDia = null; renderCalendario(); });
+$('#cal-seg').addEventListener('click', () => { calMes = somaMeses(calMes + '-01', 1).slice(0, 7); calDia = null; renderCalendario(); });
+$('#cal-hoje').addEventListener('click', () => { calMes = hojeISO().slice(0, 7); calDia = hojeISO(); renderCalendario(); });
+
 // ---------------------------------------------------------------- financeiro
 function renderFinanceiro() {
   const ligados = S.subs.filter((s) => LIGADOS.includes(s.status));
@@ -473,6 +623,9 @@ function renderFinanceiro() {
     if (!h) continue;
     if (p.paid) { h.n += 1; h.v += Number(p.value || 0); h.c += Number(p.commission || 0); } else h.pend += Number(p.value || 0);
   }
+  graficoLinha($('#fin-graf-recebido'), hist.map((h) => ({ rot: h.rot, v: h.v, n: h.n })));
+  barrasH($('#fin-graf-types'), linhasT.map((x) => ({ rot: x.t, v: x.l, cor: corType(x.t === '—' ? null : x.t), sub: `${x.n} subscritor${x.n === 1 ? '' : 'es'}` })), 'lucro líquido / mês');
+  barrasH($('#fin-graf-metodos'), metodosL.map(([k, x]) => ({ rot: k, v: x.v, cor: k === 'Sem método' ? 'var(--off)' : `var(--cat-${(Math.max(0, S.metodos.indexOf(k)) % 8) + 1})`, sub: `${x.n} pagamento${x.n === 1 ? '' : 's'}` })), 'recebido em 12 meses');
   const th = hist.reduce((a, h) => ({ n: a.n + h.n, v: a.v + h.v, c: a.c + h.c, pend: a.pend + h.pend }), { n: 0, v: 0, c: 0, pend: 0 });
   $('#fin-historico').innerHTML = `<thead><tr><th>Mês</th><th class="num">Pagamentos</th><th class="num">Recebido</th><th class="num">Comissões</th><th class="num">Recebido − comissões</th><th class="num">Registado como não pago</th></tr></thead>
     <tbody>${hist.reverse().map((h) => `<tr><td>${h.rot}</td><td class="num">${h.n}</td><td class="num">${eur(h.v)}</td><td class="num">${eur(h.c)}</td><td class="num">${eur(h.v - h.c)}</td><td class="num">${h.pend ? eur(h.pend) : '—'}</td></tr>`).join('')}</tbody>
@@ -502,7 +655,7 @@ function renderLista() {
   $('#tbody-clientes').innerHTML = lista.map((s) => `<tr class="${S.sel.has(s.id) ? 'selecionado' : ''}"${estiloType(s.type)}>
       <td class="sel"><input type="checkbox" data-sel="${s.id}" ${S.sel.has(s.id) ? 'checked' : ''}></td>
       <td class="c-id"><span class="nome" data-editar="${s.id}">${esc(s.code)}</span></td>
-      <td class="c-owner" data-label="Owner">${esc(s.owner || '')}</td>
+      <td class="c-owner" data-label="Owner">${s.owner ? avatar(s.owner) + esc(s.owner) : ''}</td>
       <td class="c-type" data-label="Type">${chipType(s.type)}</td>
       <td data-label="HW">${esc(s.hw || '')}</td>
       <td data-label="Avença">${PER[s.periodicity]}</td>
@@ -510,7 +663,7 @@ function renderLista() {
       <td class="num" data-label="Commission">${eur(s.commission)}</td>
       <td data-label="Lucro/ano" class="num ${Number(s.net_year) < 0 ? 'neg' : ''}" title="custo ${eur(s.monthly_cost)}/mês${s.type_sem_custo && s.type ? ' — Type sem custo definido' : ''}">${eur(s.net_year)}${s.type_sem_custo && s.type ? ' ⚠' : ''}</td>
       <td data-label="Last Payment">${fmtData(s.last_payment_date)}</td>
-      <td data-label="Payment Due">${fmtData(s.payment_due_date)}</td>
+      <td data-label="Payment Due">${fmtData(s.payment_due_date)}${barraProg(s)}</td>
       <td class="num" data-label="Dias">${s.status === 'cancelado' || s.days_left == null ? '—' : s.days_left}</td>
       <td class="c-estado" data-label="Estado">${badge(s.status)}</td>
       <td class="c-acoes"><div class="acoes">${s.status === 'a_terminar' || s.status === 'em_atraso' ? botaoWA(s) : ''}<button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button><button class="btn sm ghost" data-editar="${s.id}">Editar</button></div></td>
@@ -543,15 +696,14 @@ $('#btn-apagar-sel').addEventListener('click', async () => {
   if (!alvo.length) return;
   const nomes = alvo.slice(0, 10).map((s) => `<b>${esc(s.code)}</b>`).join(', ') + (alvo.length > 10 ? ` e mais ${alvo.length - 10}` : '');
   const ok = await confirmar('Apagar subscritores',
-    `Apagar <b>${alvo.length}</b> subscritor(es) e todo o histórico de pagamentos? ${nomes}.<br>Esta ação não pode ser desfeita.<br>
+    `Apagar <b>${alvo.length}</b> subscritor(es) e todo o histórico de pagamentos? ${nomes}.<br>Terás alguns segundos para desfazer.<br>
      <span class="muted small">Se só quiseres tirá-los dos ativos, apaga o PaymentDueDate (ficam arquivados) ou marca-os como cancelados.</span>`, 'Apagar');
   if (!ok) return;
   const ids = alvo.map((s) => s.id);
-  const { error } = await sb.from('subscribers').delete().in('id', ids);
-  if (error) return toast('Erro ao apagar: ' + error.message, true);
   S.sel.clear();
-  toast(`${ids.length} subscritor(es) apagado(s).`);
-  carregar();
+  comDesfazer(`${ids.length} subscritor(es) apagado(s).`,
+    () => { S.subs = S.subs.filter((s) => !ids.includes(s.id)); renderPainel(); renderLista(); renderFinanceiro(); },
+    async () => (await sb.from('subscribers').delete().in('id', ids)).error);
 });
 
 ['#f-pesquisa', '#f-estado', '#f-owner', '#f-type', '#f-hw'].forEach((s) => $(s).addEventListener('input', renderLista));
@@ -582,7 +734,7 @@ function campoHW(valor) {
 }
 const datalist = (id, campo) => `<datalist id="${id}">${unicos(campo).map((o) => `<option value="${esc(o)}">`).join('')}</datalist>`;
 
-async function abrirSub(id) {
+async function abrirSub(id, opc = {}) {
   const s = id ? S.subs.find((x) => x.id === id) : null;
   const v = s ?? { periodicity: 'semestral', value: '', commission: '', payment_due_date: proximoVenc(hojeISO(), 'semestral'), last_payment_date: hojeISO(), active: true };
 
@@ -604,7 +756,7 @@ async function abrirSub(id) {
       <label>… até (vazio = sem prazo)<input name="keep_active_until" type="date" value="${esc(v.keep_active_until)}"></label>
       ${s ? `<label class="check full"><input type="checkbox" name="cancelado" ${s.active ? '' : 'checked'}> Cancelado (deixa de contar e de aparecer nos avisos)</label>` : ''}
     </form>
-    ${s ? '<div class="hist-head"><h3>Histórico de pagamentos</h3><button class="btn sm" id="btn-add-pag" type="button">+ Adicionar pagamento</button></div><div id="historico" class="muted">A carregar…</div>' : ''}
+    ${s ? '<div class="hist-head"><h3>Histórico de pagamentos</h3><button class="btn sm" id="btn-add-pag" type="button">+ Adicionar pagamento</button></div><div id="linha-temporal" class="linha-temporal"></div><div id="historico" class="muted">A carregar…</div>' : ''}
     <div class="row">
       ${s ? '<button class="btn danger ghost" id="btn-apagar">Apagar</button><button class="btn ghost" id="btn-ver-audit">Ver auditoria</button>' : ''}
       <span class="spacer"></span>
@@ -660,25 +812,26 @@ async function abrirSub(id) {
   });
 
   $('#btn-apagar', corpo).addEventListener('click', async () => {
-    const ok = await confirmar('Apagar subscritor', `Apagar <b>${esc(titulo(s))}</b> e todo o histórico? Esta ação não pode ser desfeita.<br><span class="muted small">Se apenas deixou de pagar, marca-o como cancelado em vez de apagar.</span>`, 'Apagar');
+    const ok = await confirmar('Apagar subscritor', `Apagar <b>${esc(titulo(s))}</b> e todo o histórico? Terás alguns segundos para desfazer.<br><span class="muted small">Se apenas deixou de pagar, marca-o como cancelado em vez de apagar.</span>`, 'Apagar');
     if (!ok) return abrirSub(id);
-    const { error } = await sb.from('subscribers').delete().eq('id', s.id);
-    if (error) return toast('Erro ao apagar: ' + error.message, true);
-    toast('Subscritor apagado.');
-    carregar();
+    comDesfazer(`${s.code} apagado.`,
+      () => { S.subs = S.subs.filter((x) => x.id !== s.id); renderPainel(); renderLista(); renderFinanceiro(); },
+      async () => (await sb.from('subscribers').delete().eq('id', s.id)).error);
   });
 
   $('#btn-add-pag', corpo).addEventListener('click', () => abrirPagamento(s, null));
   const { data, error } = await sb.from('renewals').select('*').eq('subscriber_id', s.id).order('period_start', { ascending: false }).order('payment_date', { ascending: false });
   const h = $('#historico', corpo);
   if (!h) return;
-  HIST = data || [];
+  HIST = (data || []).filter((r) => r.id !== opc.esconderPag);
   if (error) h.textContent = 'Erro a carregar o histórico.';
-  else if (!data.length) h.textContent = 'Ainda sem pagamentos registados. Usa "+ Adicionar pagamento" para preencher o histórico.';
+  if (!error) desenharLinhaTemporal(s, $('#linha-temporal', corpo));
+  if (error) { /* já tratado */ }
+  else if (!HIST.length) h.textContent = 'Ainda sem pagamentos registados. Usa "+ Adicionar pagamento" para preencher o histórico.';
   else {
     h.classList.remove('muted');
     h.innerHTML = `<div class="scroll"><table class="tabela cartoes tabela-hist"><thead><tr><th>Data</th><th>Período</th><th class="num">Value</th><th class="num">Commission</th><th>Método</th><th>Pago</th><th>Notas</th><th></th></tr></thead><tbody>
-      ${data.map((r) => `<tr><td data-label="Data">${fmtData(r.payment_date)}</td><td data-label="Período">${fmtData(r.period_start)} → ${fmtData(r.period_end)}</td>
+      ${HIST.map((r) => `<tr><td data-label="Data">${fmtData(r.payment_date)}</td><td data-label="Período">${fmtData(r.period_start)} → ${fmtData(r.period_end)}</td>
         <td class="num" data-label="Value">${eur(r.value)}</td><td class="num" data-label="Commission">${eur(r.commission)}</td><td data-label="Método">${esc(r.payment_method || '—')}</td>
         <td data-label="Pago">${r.paid ? 'Sim' : '<span class="badge a_terminar">Não</span>'}</td><td data-label="Notas">${esc(r.notes || '')}</td>
         <td class="c-acoes"><div class="acoes"><button class="btn sm ghost" type="button" data-edit-pag="${r.id}">Editar</button><button class="btn sm ghost danger" type="button" data-del-pag="${r.id}">Apagar</button></div></td></tr>`).join('')}
@@ -688,18 +841,50 @@ async function abrirSub(id) {
       if (ed) return abrirPagamento(s, HIST.find((r) => r.id === ed.dataset.editPag));
       if (del) {
         const r = HIST.find((x) => x.id === del.dataset.delPag);
-        const ok = await confirmar('Apagar pagamento', `Apagar o pagamento de <b>${fmtData(r.payment_date)}</b> (${fmtData(r.period_start)} → ${fmtData(r.period_end)}, ${eur(r.value)}) do histórico de <b>${esc(s.code)}</b>?<br><span class="muted small">O PaymentDueDate do subscritor não é alterado.</span>`, 'Apagar');
+        const ok = await confirmar('Apagar pagamento', `Apagar o pagamento de <b>${fmtData(r.payment_date)}</b> (${fmtData(r.period_start)} → ${fmtData(r.period_end)}, ${eur(r.value)}) do histórico de <b>${esc(s.code)}</b>?<br><span class="muted small">O PaymentDueDate do subscritor não é alterado. Terás alguns segundos para desfazer.</span>`, 'Apagar');
         if (!ok) return abrirSub(s.id);
-        const { error: e2 } = await sb.from('renewals').delete().eq('id', r.id);
-        if (e2) return toast('Erro ao apagar: ' + e2.message, true);
-        toast('Pagamento apagado do histórico.');
-        await carregar();
-        abrirSub(s.id);
+        comDesfazer('Pagamento apagado do histórico.',
+          () => { HIST = HIST.filter((x) => x.id !== r.id); abrirSub(s.id, { esconderPag: r.id }); },
+          async () => (await sb.from('renewals').delete().eq('id', r.id)).error);
       }
     });
   }
 }
 let HIST = [];
+
+// ---------- linha temporal do histórico (blocos por período; buracos a vermelho)
+function desenharLinhaTemporal(s, el) {
+  if (!el) return;
+  const hoje = hojeISO();
+  const pers = HIST.map((r) => ({ a: r.period_start, b: r.period_end, r })).filter((x) => x.a && x.b && x.b > x.a).sort((x, y) => (x.a < y.a ? -1 : 1));
+  if (!pers.length && !s.payment_due_date) { el.innerHTML = ''; return; }
+  const ini0 = pers.length ? pers[0].a : somaMeses(s.payment_due_date, -mesesDe(s.periodicity));
+  const fimMax = [hoje, s.payment_due_date, ...pers.map((x) => x.b)].filter(Boolean).sort().pop();
+  const ini = somaMeses(ini0.slice(0, 8) + '01', 0), fim = somaMeses(fimMax.slice(0, 8) + '01', 1);
+  const total = diasEntre(ini, fim) || 1;
+  const pos = (d) => Math.max(0, Math.min(100, (diasEntre(ini, d) / total) * 100));
+  // buracos: dias sem nenhum período, entre o primeiro pagamento e o PaymentDueDate (ou hoje)
+  const limite = s.payment_due_date && s.payment_due_date < hoje ? s.payment_due_date : (s.payment_due_date || hoje);
+  const buracos = [];
+  let cob = pers.length ? pers[0].a : null;
+  for (const x of pers) {
+    if (cob && diasEntre(cob, x.a) > 1) buracos.push([cob, x.a]);
+    if (!cob || x.b > cob) cob = x.b;
+  }
+  if (cob && limite && diasEntre(cob, limite) > 1) buracos.push([cob, limite]);
+  const anos = [];
+  for (let y = Number(ini.slice(0, 4)) + 1; `${y}-01-01` < fim; y++) anos.push(`${y}-01-01`);
+  el.innerHTML = `
+    <div class="lt-pista">
+      ${anos.map((d) => `<span class="lt-ano" style="left:${pos(d)}%"><b>${d.slice(0, 4)}</b></span>`).join('')}
+      ${buracos.map(([a, b]) => `<span class="lt-buraco" style="left:${pos(a)}%;width:${Math.max(0.6, pos(b) - pos(a))}%" title="Sem pagamento registado: ${fmtData(a)} → ${fmtData(b)} (${diasEntre(a, b)} dias)"></span>`).join('')}
+      ${pers.map((x) => `<span class="lt-bloco ${x.r.paid ? 'pago' : 'npago'}" style="left:${pos(x.a)}%;width:${Math.max(0.6, pos(x.b) - pos(x.a))}%" title="${fmtData(x.a)} → ${fmtData(x.b)} · ${eur(x.r.value)}${x.r.payment_method ? ' · ' + esc(x.r.payment_method) : ''} · ${x.r.paid ? 'pago' : 'não pago'}"></span>`).join('')}
+      <span class="lt-marca hoje" style="left:${pos(hoje)}%" title="Hoje"></span>
+      ${s.payment_due_date ? `<span class="lt-marca due" style="left:${pos(s.payment_due_date)}%" title="PaymentDueDate ${fmtData(s.payment_due_date)}"></span>` : ''}
+    </div>
+    <div class="lt-eixo"><span>${fmtData(ini)}</span><span>${fmtData(fim)}</span></div>
+    <div class="lt-legenda"><span><i class="pago"></i>pago</span><span><i class="npago"></i>não pago</span><span><i class="buraco"></i>sem pagamento registado${buracos.length ? ` (${buracos.length})` : ''}</span><span><i class="hoje"></i>hoje</span><span><i class="due"></i>PaymentDueDate</span></div>`;
+}
 
 // ---------------------------------------------------------------- histórico: adicionar / editar pagamento
 function abrirPagamento(s, r) {
@@ -1263,6 +1448,23 @@ if (SESSAO_MS > 0) {
   setInterval(verificar, 30000);
   setTimeout(verificar, 1500);   // ao abrir a app: sessão antiga sem atividade termina logo
   document.addEventListener('visibilitychange', () => { if (!document.hidden) verificar(); });
+}
+
+// ---------------------------------------------------------------- tema (automático / claro / escuro)
+const TEMAS = ['auto', 'light', 'dark'];
+const ROT_TEMA = { auto: '◐ Auto', light: '☀️ Claro', dark: '🌙 Escuro' };
+function aplicarTema(t) {
+  if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  try { t === 'auto' ? localStorage.removeItem('tema') : localStorage.setItem('tema', t); } catch { /* */ }
+  $('#btn-tema').textContent = ROT_TEMA[t];
+}
+let temaAtual = (() => { try { return localStorage.getItem('tema') || 'auto'; } catch { return 'auto'; } })();
+aplicarTema(temaAtual);
+$('#btn-tema').addEventListener('click', () => { temaAtual = TEMAS[(TEMAS.indexOf(temaAtual) + 1) % 3]; aplicarTema(temaAtual); toast(`Tema: ${ROT_TEMA[temaAtual]}`); });
+
+// ---------------------------------------------------------------- app instalável (PWA)
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('./sw.js').catch(() => { /* sem service worker: a app funciona na mesma */ });
 }
 
 // ---------------------------------------------------------------- arranque

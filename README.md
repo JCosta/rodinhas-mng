@@ -30,6 +30,8 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 
 **Manter ligado com prazo:** ao manter ligado um cliente em atraso escolhe-se até quando (7/15/30 dias, data ou sem prazo). Passado o prazo volta sozinho aos Desligados.
 
+**Visual:** instalável no telemóvel (PWA: no Chrome/Android "Instalar app"; no iPhone, Safari → Partilhar → "Adicionar ao ecrã principal"); modo escuro automático ou escolhido no botão ◐; barra de progresso do período em cada subscritor; linha temporal do histórico no Editar (buracos a vermelho); separador **Calendário** de vencimentos; gráficos no Financeiro; "Desfazer" durante 8 s depois de apagar.
+
 **Sessão:** termina automaticamente após `SESSAO_MINUTOS` (em `config.js`, 30 por defeito) sem atividade.
 
 **Separadores:** *Painel* (só operacional: a vencer, em atraso, desligados, arquivados) · *Subscritores* · *Financeiro* (receita, comissões, custos por Type, lucro líquido mensal, previsão de 12 meses e pagamentos registados) · *Importar* · *Configuração* · *Auditoria*.

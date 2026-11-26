@@ -5,7 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Gestão de Avenças</title>
-  <link rel="stylesheet" href="styles.css?v=202611261556">
+  <meta name="theme-color" content="#1f5eff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#101317" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Rodinhas">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <script>
+    // tema escolhido (antes de desenhar a página, para não piscar)
+    try { const t = localStorage.getItem('tema'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="styles.css?v=202611261613">
 </head>
 <body>
   <!-- Login -->
@@ -27,12 +40,13 @@
       <nav class="tabs">
         <button data-tab="painel" class="tab active">Painel</button>
         <button data-tab="clientes" class="tab">Subscritores</button>
+        <button data-tab="calendario" class="tab">Calendário</button>
         <button data-tab="financeiro" class="tab">Financeiro</button>
         <button data-tab="importar" class="tab">Importar</button>
         <button data-tab="config" class="tab">Configuração</button>
         <button data-tab="auditoria" class="tab">Auditoria</button>
       </nav>
-      <div class="user"><span id="user-email" class="muted"></span><button id="logout" class="btn ghost sm">Sair</button></div>
+      <div class="user"><span id="user-email" class="muted"></span><button id="btn-tema" class="btn ghost sm" title="Tema: automático / claro / escuro">◐</button><button id="logout" class="btn ghost sm">Sair</button></div>
     </header>
 
     <main>
@@ -72,9 +86,35 @@
         </div>
       </section>
 
+      <!-- Calendário -->
+      <section id="tab-calendario" class="tab-panel hidden">
+        <div class="card">
+          <div class="cal-topo">
+            <button id="cal-ant" class="btn sm" type="button" aria-label="Mês anterior">‹</button>
+            <h2 id="cal-titulo"></h2>
+            <button id="cal-seg" class="btn sm" type="button" aria-label="Mês seguinte">›</button>
+            <button id="cal-hoje" class="btn sm ghost" type="button">Hoje</button>
+            <span class="spacer"></span><span class="muted" id="cal-resumo"></span>
+          </div>
+          <div id="cal-grelha" class="cal-grelha"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2 id="cal-lista-titulo"></h2><span class="muted">toca num dia para filtrar</span></div>
+          <div id="cal-lista"></div>
+        </div>
+      </section>
+
       <!-- Financeiro -->
       <section id="tab-financeiro" class="tab-panel hidden">
         <div class="kpis" id="fin-kpis"></div>
+        <div class="card">
+          <div class="card-head"><h2>Recebido por mês</h2><span class="muted">pagamentos registados como pagos · últimos 12 meses</span></div>
+          <div id="fin-graf-recebido" class="graf-wrap"></div>
+        </div>
+        <div class="grid2">
+          <div class="card"><div class="card-head"><h2>Lucro líquido mensal por Type</h2></div><div id="fin-graf-types"></div></div>
+          <div class="card"><div class="card-head"><h2>Recebido por método</h2><span class="muted">12 meses</span></div><div id="fin-graf-metodos"></div></div>
+        </div>
         <div class="card">
           <div class="card-head"><h2>Por Type</h2><span class="muted">valores mensais médios dos subscritores ligados</span></div>
           <div class="scroll" style="border:none;max-height:none"><table class="tabela" id="fin-types"></table></div>
@@ -253,7 +293,8 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
+  <div id="toast-desfazer" class="toast desfazer hidden" role="status"></div>
 
-  <script type="module" src="app.js?v=202611261556"></script>
+  <script type="module" src="app.js?v=202611261613"></script>
 </body>
 </html>
