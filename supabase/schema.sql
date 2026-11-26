@@ -246,10 +246,10 @@ begin
   v_fim := (v_ini + make_interval(months => v_mes))::date;
 
   -- value/commission do período normal mantêm-se; num reforço curto não alteram os valores de referência
+  perform set_config('app.in_renew', '1', true);   -- marca: renovação feita pela função (auditoria)
   insert into public.renewals (subscriber_id, payment_date, period_start, period_end, value, commission, paid, payment_method, notes)
   values (s.id, v_dt, v_ini, v_fim, coalesce(p_value, s.value), coalesce(p_commission, s.commission), p_paid, nullif(trim(p_method), ''), p_notes);
 
-  perform set_config('app.in_renew', '1', true);   -- o log de auditoria regista só a renovação
   update public.subscribers
      set payment_due_date  = v_fim,
          last_payment_date = case when p_paid then v_dt else last_payment_date end,
@@ -357,25 +357,42 @@ drop trigger if exists audit_subscribers on public.subscribers;
 create trigger audit_subscribers after insert or update or delete on public.subscribers
   for each row execute function public.audit_subscribers();
 
--- Renovações (registo de pagamento)
+-- Renovações / pagamentos (histórico)
+--   renovar     = botão Renovar (função renew_subscriber)
+--   pagamento   = pagamento acrescentado à mão ao histórico
+--   editar_pag  = pagamento do histórico alterado
+--   apagar_pag  = pagamento do histórico apagado (não regista os apagados em cascata com o subscritor)
 create or replace function public.audit_renewals()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
-declare c text;
+declare c text; r public.renewals; d jsonb;
 begin
-  select code into c from public.subscribers where id = new.subscriber_id;
-  perform public.audit_write('renovar', 'renewal', new.id::text, c,
-    jsonb_build_object('payment_date', new.payment_date, 'period_start', new.period_start, 'period_end', new.period_end,
-                       'value', new.value, 'commission', new.commission, 'paid', new.paid,
-                       'payment_method', new.payment_method, 'notes', new.notes));
-  return new;
+  r := coalesce(new, old);
+  select code into c from public.subscribers where id = r.subscriber_id;
+  if tg_op = 'DELETE' then
+    if c is null then return old; end if;   -- subscritor apagado: já fica registado como "apagar"
+    perform public.audit_write('apagar_pag', 'renewal', old.id::text, c,
+      to_jsonb(old) - 'id' - 'user_id' - 'subscriber_id' - 'created_at');
+  elsif tg_op = 'UPDATE' then
+    d := public.audit_diff(to_jsonb(old), to_jsonb(new));
+    if d = '{}'::jsonb then return new; end if;
+    perform public.audit_write('editar_pag', 'renewal', new.id::text, c, d);
+  else
+    perform public.audit_write(
+      case when current_setting('app.in_renew', true) = '1' then 'renovar' else 'pagamento' end,
+      'renewal', new.id::text, c,
+      jsonb_build_object('payment_date', new.payment_date, 'period_start', new.period_start, 'period_end', new.period_end,
+                         'value', new.value, 'commission', new.commission, 'paid', new.paid,
+                         'payment_method', new.payment_method, 'notes', new.notes));
+  end if;
+  return r;
 end $$;
 
 drop trigger if exists audit_renewals on public.renewals;
-create trigger audit_renewals after insert on public.renewals
+create trigger audit_renewals after insert or update or delete on public.renewals
   for each row execute function public.audit_renewals();
 
 -- Configuração: custos por Type e definições

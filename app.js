@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261520';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261540';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -481,7 +481,7 @@ async function abrirSub(id) {
       <label class="check full"><input type="checkbox" name="keep_active" ${v.keep_active ? 'checked' : ''}> Manter ligado mesmo com o pagamento em atraso</label>
       ${s ? `<label class="check full"><input type="checkbox" name="cancelado" ${s.active ? '' : 'checked'}> Cancelado (deixa de contar e de aparecer nos avisos)</label>` : ''}
     </form>
-    ${s ? '<h3>Histórico de pagamentos</h3><div id="historico" class="muted">A carregar…</div>' : ''}
+    ${s ? '<div class="hist-head"><h3>Histórico de pagamentos</h3><button class="btn sm" id="btn-add-pag" type="button">+ Adicionar pagamento</button></div><div id="historico" class="muted">A carregar…</div>' : ''}
     <div class="row">
       ${s ? '<button class="btn danger ghost" id="btn-apagar">Apagar</button><button class="btn ghost" id="btn-ver-audit">Ver auditoria</button>' : ''}
       <span class="spacer"></span>
@@ -544,19 +544,101 @@ async function abrirSub(id) {
     carregar();
   });
 
-  const { data, error } = await sb.from('renewals').select('*').eq('subscriber_id', s.id).order('payment_date', { ascending: false });
+  $('#btn-add-pag', corpo).addEventListener('click', () => abrirPagamento(s, null));
+  const { data, error } = await sb.from('renewals').select('*').eq('subscriber_id', s.id).order('period_start', { ascending: false }).order('payment_date', { ascending: false });
   const h = $('#historico', corpo);
   if (!h) return;
+  HIST = data || [];
   if (error) h.textContent = 'Erro a carregar o histórico.';
-  else if (!data.length) h.textContent = 'Ainda sem pagamentos registados aqui.';
+  else if (!data.length) h.textContent = 'Ainda sem pagamentos registados. Usa "+ Adicionar pagamento" para preencher o histórico.';
   else {
     h.classList.remove('muted');
-    h.innerHTML = `<div class="scroll"><table class="tabela"><thead><tr><th>Data</th><th>Período</th><th class="num">Value</th><th class="num">Commission</th><th>Método</th><th>Pago</th><th>Notas</th></tr></thead><tbody>
-      ${data.map((r) => `<tr><td>${fmtData(r.payment_date)}</td><td>${fmtData(r.period_start)} → ${fmtData(r.period_end)}</td>
-        <td class="num">${eur(r.value)}</td><td class="num">${eur(r.commission)}</td><td>${esc(r.payment_method || '—')}</td>
-        <td>${r.paid ? 'Sim' : '<span class="badge a_terminar">Não</span>'}</td><td>${esc(r.notes || '')}</td></tr>`).join('')}
+    h.innerHTML = `<div class="scroll"><table class="tabela cartoes tabela-hist"><thead><tr><th>Data</th><th>Período</th><th class="num">Value</th><th class="num">Commission</th><th>Método</th><th>Pago</th><th>Notas</th><th></th></tr></thead><tbody>
+      ${data.map((r) => `<tr><td data-label="Data">${fmtData(r.payment_date)}</td><td data-label="Período">${fmtData(r.period_start)} → ${fmtData(r.period_end)}</td>
+        <td class="num" data-label="Value">${eur(r.value)}</td><td class="num" data-label="Commission">${eur(r.commission)}</td><td data-label="Método">${esc(r.payment_method || '—')}</td>
+        <td data-label="Pago">${r.paid ? 'Sim' : '<span class="badge a_terminar">Não</span>'}</td><td data-label="Notas">${esc(r.notes || '')}</td>
+        <td class="c-acoes"><div class="acoes"><button class="btn sm ghost" type="button" data-edit-pag="${r.id}">Editar</button><button class="btn sm ghost danger" type="button" data-del-pag="${r.id}">Apagar</button></div></td></tr>`).join('')}
     </tbody></table></div>`;
+    h.addEventListener('click', async (e) => {
+      const ed = e.target.closest('[data-edit-pag]'), del = e.target.closest('[data-del-pag]');
+      if (ed) return abrirPagamento(s, HIST.find((r) => r.id === ed.dataset.editPag));
+      if (del) {
+        const r = HIST.find((x) => x.id === del.dataset.delPag);
+        const ok = await confirmar('Apagar pagamento', `Apagar o pagamento de <b>${fmtData(r.payment_date)}</b> (${fmtData(r.period_start)} → ${fmtData(r.period_end)}, ${eur(r.value)}) do histórico de <b>${esc(s.code)}</b>?<br><span class="muted small">O PaymentDueDate do subscritor não é alterado.</span>`, 'Apagar');
+        if (!ok) return abrirSub(s.id);
+        const { error: e2 } = await sb.from('renewals').delete().eq('id', r.id);
+        if (e2) return toast('Erro ao apagar: ' + e2.message, true);
+        toast('Pagamento apagado do histórico.');
+        await carregar();
+        abrirSub(s.id);
+      }
+    });
   }
+}
+let HIST = [];
+
+// ---------------------------------------------------------------- histórico: adicionar / editar pagamento
+function abrirPagamento(s, r) {
+  const novo = !r;
+  // Sugestão para um pagamento novo: o período imediatamente antes do pagamento mais antigo (ou do PaymentDueDate)
+  const maisAntigo = HIST.length ? HIST.reduce((a, x) => (x.period_start < a ? x.period_start : a), HIST[0].period_start) : null;
+  const fimSug = maisAntigo || s.payment_due_date || hojeISO();
+  const iniSug = somaMeses(fimSug, -mesesDe(s.periodicity));
+  const v = r ?? { payment_date: iniSug, period_start: iniSug, period_end: fimSug, value: s.value, commission: s.commission, paid: true, payment_method: '', notes: '' };
+  const metodos = [...new Set([...S.metodos, ...(v.payment_method ? [v.payment_method] : [])])];
+
+  const corpo = abrirModal(`${novo ? 'Adicionar pagamento' : 'Editar pagamento'} — ${titulo(s)}`, `
+    ${novo ? `<div class="info">Fica só no histórico: o PaymentDueDate atual (<b>${s.payment_due_date ? fmtData(s.payment_due_date) : 'sem data'}</b>) não muda, a não ser que marques a opção no fim.</div>` : ''}
+    <form class="form" id="form-pag" style="margin-top:14px">
+      <label>Data do pagamento *<input name="payment_date" type="date" required value="${esc(v.payment_date)}"></label>
+      <label>Método de pagamento<select name="method"><option value="">— escolher —</option>${metodos.map((m) => `<option ${m === v.payment_method ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
+      <label>Início do período *<input name="period_start" type="date" required value="${esc(v.period_start)}"></label>
+      <label>Fim do período *<input name="period_end" type="date" required value="${esc(v.period_end)}"></label>
+      <label>Value<input name="value" type="number" step="0.01" min="0" value="${esc(v.value)}"></label>
+      <label>Commission<input name="commission" type="number" step="0.01" min="0" value="${esc(v.commission)}"></label>
+      <label class="check full"><input type="checkbox" name="paid" ${v.paid ? 'checked' : ''}> Pago</label>
+      <label class="full">Notas<input name="notes" value="${esc(v.notes)}"></label>
+      ${novo ? `<label class="check full"><input type="checkbox" name="atualizar_due"> Atualizar também o PaymentDueDate para o fim deste período</label>` : ''}
+    </form>
+    <div class="row end"><button class="btn" type="button" id="btn-voltar">Voltar</button><button class="btn primary" type="button" id="btn-gravar-pag">${novo ? 'Adicionar' : 'Guardar'}</button></div>`);
+
+  const form = $('#form-pag', corpo);
+  // ao mudar o início, sugere o fim conforme a avença (até ser alterado à mão)
+  let fimManual = !novo;
+  form.period_end.addEventListener('change', () => { fimManual = true; });
+  form.period_start.addEventListener('change', () => {
+    if (!fimManual && form.period_start.value) form.period_end.value = somaMeses(form.period_start.value, mesesDe(s.periodicity));
+  });
+  $('#btn-voltar', corpo).addEventListener('click', () => abrirSub(s.id));
+  $('#btn-gravar-pag', corpo).addEventListener('click', async (e) => {
+    if (!form.reportValidity()) return;
+    const f = new FormData(form);
+    if (f.get('period_end') <= f.get('period_start')) return toast('O fim do período tem de ser depois do início.', true);
+    const reg = {
+      payment_date: f.get('payment_date'),
+      period_start: f.get('period_start'),
+      period_end: f.get('period_end'),
+      value: Number(f.get('value')) || 0,
+      commission: Number(f.get('commission')) || 0,
+      paid: !!f.get('paid'),
+      payment_method: f.get('method') || null,
+      notes: (f.get('notes') || '').trim() || null,
+    };
+    e.target.disabled = true;
+    const { error } = novo
+      ? await sb.from('renewals').insert({ ...reg, subscriber_id: s.id })
+      : await sb.from('renewals').update(reg).eq('id', r.id);
+    if (error) { e.target.disabled = false; return toast('Erro ao gravar: ' + error.message, true); }
+    if (novo && f.get('atualizar_due')) {
+      const upd = { payment_due_date: reg.period_end };
+      if (reg.paid && (!s.last_payment_date || reg.payment_date > s.last_payment_date)) upd.last_payment_date = reg.payment_date;
+      const { error: e2 } = await sb.from('subscribers').update(upd).eq('id', s.id);
+      if (e2) toast('Pagamento gravado, mas não consegui atualizar o PaymentDueDate: ' + e2.message, true);
+    }
+    toast(novo ? 'Pagamento adicionado ao histórico.' : 'Pagamento atualizado.');
+    await carregar();
+    abrirSub(s.id);
+  });
 }
 
 // ---------------------------------------------------------------- renovar
@@ -960,11 +1042,12 @@ $('#btn-wa-guardar').addEventListener('click', async () => {
 
 // ---------------------------------------------------------------- auditoria
 const AUD = { linhas: [], pagina: 0, tam: 200 };
-const ACOES = { criar: 'Criar', editar: 'Editar', renovar: 'Renovar', apagar: 'Apagar', aviso: 'Aviso copiado', ligar: 'Manter ligado', desligar: 'Desligar', config: 'Configuração' };
+const ACOES = { criar: 'Criar', editar: 'Editar', renovar: 'Renovar', pagamento: 'Pagamento (histórico)', editar_pag: 'Editar pagamento', apagar_pag: 'Apagar pagamento', apagar: 'Apagar', aviso: 'Aviso copiado', ligar: 'Manter ligado', desligar: 'Desligar', config: 'Configuração' };
 const CAMPO = {
   code: 'ID', payment_due_date: 'PaymentDueDate', last_payment_date: 'LastPaymentDate', value: 'Value', commission: 'Commission',
   owner: 'Owner', type: 'Type', hw: 'HW', periodicity: 'Avença', active: 'Ativo', keep_active: 'Manter ligado',
   notes: 'Notas', last_notified_at: 'Aviso copiado em', monthly_cost: 'Custo mensal',
+  payment_date: 'Data do pagamento', period_start: 'Início do período', period_end: 'Fim do período', paid: 'Pago', payment_method: 'Método',
 };
 function valorAud(k, v) {
   if (v === null || v === undefined || v === '') return '—';
@@ -986,6 +1069,9 @@ function detalhesAud(r) {
       return lista(resto);
     }
     case 'editar': return difs(d);
+    case 'editar_pag': return difs(d);
+    case 'apagar_pag':
+    case 'pagamento':
     case 'renovar':
       return `Pagamento a <b>${fmtData(d.payment_date)}</b> · período ${fmtData(d.period_start)} → <b>${fmtData(d.period_end)}</b> · Value <b>${eur(d.value)}</b> · Commission ${eur(d.commission)} · ${d.payment_method ? 'método <b>' + esc(d.payment_method) + '</b> · ' : ''}${d.paid ? 'pago' : '<b>não pago</b>'}${d.notes ? ' · ' + esc(d.notes) : ''}`;
     case 'aviso': return 'Mensagem de aviso copiada para o WhatsApp';

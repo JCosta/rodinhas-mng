@@ -143,6 +143,14 @@ main { max-width: 1600px; margin: 0 auto; padding: 24px; }
 .kpi[data-ir]:hover { border-color: #c9ced6; }
 mark { background: #fff1a8; padding: 0 1px; border-radius: 2px; }
 
+/* Histórico de pagamentos */
+.modal-box:has(#historico) { max-width: 960px; }
+.hist-head { display: flex; justify-content: space-between; align-items: center; margin: 20px 0 8px; }
+.hist-head h3 { margin: 0; }
+.badge.a-pagamento { color: #6b21a8; background: #f3e8ff; }
+.badge.a-editar_pag { color: #1f5eff; background: #e8efff; }
+.badge.a-apagar_pag { color: var(--bad); background: var(--bad-bg); }
+
 /* Cor por Type */
 .tchip { display: inline-block; min-width: 22px; text-align: center; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 700;
   color: var(--tc, var(--off)); background: color-mix(in srgb, var(--tc, #888) 14%, white); border: 1px solid color-mix(in srgb, var(--tc, #888) 35%, white); }
@@ -255,6 +263,8 @@ html { -webkit-text-size-adjust: 100%; }
   /* auditoria */
   .tabela-audit.cartoes td.c-det { grid-column: 1 / -1; min-width: 0; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 4px; }
   #sel-todos { display: none; }
+  .tabela-hist td.c-acoes { grid-column: 1 / -1; }
+  .tabela-hist .acoes .btn { flex: 1; }
   /* subscritores: cartão compacto (3 colunas, estado no topo) */
   #tabela-subs tr { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-top: 10px; }
   #tabela-subs td.c-estado { position: absolute; top: 10px; right: 40px; grid-column: auto; }
