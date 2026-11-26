@@ -6,6 +6,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 // ---------------------------------------------------------------- estado
 const S = {
   subs: [],
+  custos: [],
   sort: { campo: 'payment_due_date', asc: true },
 };
 
@@ -121,7 +122,10 @@ async function carregar() {
   const { data, error } = await sb.from('subscribers_status').select('*').order('payment_due_date');
   if (error) { toast('Erro a carregar: ' + error.message, true); return; }
   S.subs = data;
+  const rc = await sb.from('type_costs').select('*').order('type');
+  S.custos = rc.error ? [] : rc.data;
   preencherFiltros();
+  renderConfig();
   renderPainel();
   renderLista();
 }
@@ -146,15 +150,16 @@ function renderPainel() {
   const vivos = cs.filter((s) => s.status === 'ativo' || s.status === 'a_terminar');
   const aTerminar = cs.filter((s) => s.status === 'a_terminar').sort((a, b) => a.days_left - b.days_left);
   const desligados = cs.filter((s) => s.status === 'desligado').sort((a, b) => (b.days_left ?? -1e9) - (a.days_left ?? -1e9));
-  const receita = vivos.reduce((t, s) => t + Number(s.value_year || 0), 0);
-  const comissoes = vivos.reduce((t, s) => t + Number(s.commission_year || 0), 0);
-  const soma = (arr) => arr.reduce((t, s) => t + Number(s.value || 0), 0);
+  const somaK = (arr, k) => arr.reduce((t, s) => t + Number(s[k] || 0), 0);
+  const bruto = somaK(vivos, 'value_year'), comissoes = somaK(vivos, 'commission_year'), custos = somaK(vivos, 'cost_year'), lucro = somaK(vivos, 'net_year');
+  const soma = (arr) => somaK(arr, 'value');
 
   $('#kpis').innerHTML = `
     <div class="kpi"><div class="lbl">Subscritores ativos</div><div class="val">${vivos.length}</div>
       <div class="sub">${vivos.filter((s) => s.periodicity === 'semestral').length} semestrais · ${vivos.filter((s) => s.periodicity === 'anual').length} anuais</div></div>
-    <div class="kpi"><div class="lbl">Receita anual recorrente</div><div class="val">${eur(receita)}</div>
-      <div class="sub">comissões ${eur(comissoes)} · líquido ${eur(receita - comissoes)}</div></div>
+    <div class="kpi"><div class="lbl">Lucro líquido anual</div><div class="val">${eur(lucro)}</div>
+      <div class="sub" title="Receita bruta ${eur(bruto)} − comissões ${eur(comissoes)} − custos ${eur(custos)}">bruto ${eur(bruto)} · custos ${eur(custos)}</div></div>
+    <div class="kpi"><div class="lbl">Comissões anuais</div><div class="val">${eur(comissoes)}</div><div class="sub">avenças em vigor</div></div>
     <div class="kpi warn"><div class="lbl">A vencer (${DIAS_AVISO} dias)</div><div class="val">${aTerminar.length}</div><div class="sub">${eur(soma(aTerminar))} a receber</div></div>
     <div class="kpi bad"><div class="lbl">Desligados</div><div class="val">${desligados.length}</div><div class="sub">sem pagamento em dia</div></div>`;
 
@@ -195,7 +200,7 @@ function filtrados() {
   const q = $('#f-pesquisa').value.trim().toLowerCase();
   const est = $('#f-estado').value, ow = $('#f-owner').value, ty = $('#f-type').value, hw = $('#f-hw').value;
   const { campo, asc } = S.sort;
-  const numericos = ['value', 'commission', 'days_left'];
+  const numericos = ['value', 'commission', 'days_left', 'net_year'];
   return S.subs
     .filter((s) => (!est || s.status === est) && (!ow || s.owner === ow) && (!ty || s.type === ty) && (!hw || s.hw === hw))
     .filter((s) => !q || [s.code, s.owner, s.type, s.hw, s.notes].some((v) => String(v ?? '').toLowerCase().includes(q)))
@@ -216,6 +221,7 @@ function renderLista() {
       <td>${PER[s.periodicity]}</td>
       <td class="num">${eur(s.value)}</td>
       <td class="num">${eur(s.commission)}</td>
+      <td class="num ${Number(s.net_year) < 0 ? 'neg' : ''}" title="custo ${eur(s.monthly_cost)}/mês${s.type_sem_custo && s.type ? ' — Type sem custo definido' : ''}">${eur(s.net_year)}${s.type_sem_custo && s.type ? ' ⚠' : ''}</td>
       <td>${fmtData(s.last_payment_date)}</td>
       <td>${fmtData(s.payment_due_date)}</td>
       <td class="num">${s.status === 'cancelado' || s.days_left == null ? '—' : s.days_left}</td>
@@ -265,7 +271,7 @@ async function abrirSub(id) {
     <form class="form" id="form-sub">
       <label>ID *<input name="code" required value="${esc(v.code)}"></label>
       <label>Owner<input name="owner" list="dl-owner" value="${esc(v.owner)}">${datalist('dl-owner', 'owner')}</label>
-      <label>Type<input name="type" list="dl-type" value="${esc(v.type)}">${datalist('dl-type', 'type')}</label>
+      <label>Type<input name="type" list="dl-type" value="${esc(v.type)}"><datalist id="dl-type">${[...new Set([...S.custos.map((c) => c.type), ...unicos('type')])].map((o) => `<option value="${esc(o)}">`).join('')}</datalist></label>
       <label>HW${campoHW(v.hw)}</label>
       <label>Avença<select name="periodicity">
         <option value="semestral" ${v.periodicity === 'semestral' ? 'selected' : ''}>Semestral</option>
@@ -424,14 +430,14 @@ function abrirRenovar(id) {
 $('#btn-exportar').addEventListener('click', () => {
   const cols = [
     ['ID', 'code'], ['PaymentDueDate', 'payment_due_date'], ['LastPaymentDate', 'last_payment_date'], ['Value', 'value'],
-    ['Commission', 'commission'], ['Owner', 'owner'], ['Type', 'type'], ['HW', 'hw'], ['Periodicity', 'periodicity'],
+    ['Commission', 'commission'], ['MonthlyCost', 'monthly_cost'], ['NetYear', 'net_year'], ['Owner', 'owner'], ['Type', 'type'], ['HW', 'hw'], ['Periodicity', 'periodicity'],
     ['Status', 'status'], ['DaysLeft', 'days_left'], ['Notes', 'notes'],
   ];
   const cel = (v) => {
     const t = String(v ?? '');
     return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
-  const val = (s, k) => (k === 'value' || k === 'commission') ? String(s[k]).replace('.', ',') : k.endsWith('_date') ? fmtData(s[k]).replace('—', '') : s[k];
+  const val = (s, k) => ['value', 'commission', 'monthly_cost', 'net_year'].includes(k) ? String(s[k]).replace('.', ',') : k.endsWith('_date') ? fmtData(s[k]).replace('—', '') : s[k];
   const linhas = [cols.map((c) => c[0]).join(';'), ...filtrados().map((s) => cols.map(([, k]) => cel(val(s, k))).join(';'))];
   const blob = new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
@@ -615,6 +621,52 @@ $('#btn-importar').addEventListener('click', async (e) => {
   $('#ficheiro').value = '';
   await carregar();
   $('.tab[data-tab="clientes"]').click();
+});
+
+// ---------------------------------------------------------------- configuração: custos por Type
+function renderConfig() {
+  const cont = (t) => S.subs.filter((s) => s.type === t).length;
+  $('#tabela-custos tbody').innerHTML = S.custos.map((c) => `<tr>
+      <td><b>${esc(c.type)}</b></td>
+      <td class="num"><input type="number" step="0.01" min="0" value="${esc(c.monthly_cost)}" data-custo="${esc(c.type)}" style="max-width:110px;text-align:right"></td>
+      <td class="num">${cont(c.type)}</td>
+      <td><div class="acoes"><button class="btn sm" data-guardar-custo="${esc(c.type)}">Guardar</button><button class="btn sm ghost danger" data-apagar-custo="${esc(c.type)}">Apagar</button></div></td>
+    </tr>`).join('') || '<tr><td colspan="4" class="vazio">Sem custos definidos.</td></tr>';
+  const semCusto = unicos('type').filter((t) => !S.custos.some((c) => c.type === t));
+  $('#aviso-tipos').innerHTML = semCusto.length
+    ? `⚠ Types usados sem custo definido (contam como 0 €): <b>${semCusto.map(esc).join(', ')}</b>`
+    : '';
+}
+
+$('#tabela-custos').addEventListener('click', async (e) => {
+  const g = e.target.closest('[data-guardar-custo]');
+  const d = e.target.closest('[data-apagar-custo]');
+  if (g) {
+    const type = g.dataset.guardarCusto;
+    const v = Number($(`[data-custo="${CSS.escape(type)}"]`).value);
+    if (!(v >= 0)) return toast('Valor inválido.', true);
+    const { error } = await sb.from('type_costs').update({ monthly_cost: v, updated_at: new Date().toISOString() }).eq('type', type);
+    if (error) return toast('Erro ao guardar: ' + error.message, true);
+    toast(`Custo de ${type} atualizado.`);
+    carregar();
+  } else if (d) {
+    const type = d.dataset.apagarCusto;
+    if (!(await confirmar('Apagar custo', `Apagar o custo do Type <b>${esc(type)}</b>? Os subscritores deste Type passam a ter custo 0 €.`, 'Apagar'))) return;
+    const { error } = await sb.from('type_costs').delete().eq('type', type);
+    if (error) return toast('Erro ao apagar: ' + error.message, true);
+    carregar();
+  }
+});
+
+$('#btn-add-custo').addEventListener('click', async () => {
+  const type = $('#novo-type').value.trim();
+  const v = Number($('#novo-custo').value);
+  if (!type || !($('#novo-custo').value !== '' && v >= 0)) return toast('Indica o Type e o custo mensal.', true);
+  const { error } = await sb.from('type_costs').insert({ type, monthly_cost: v });
+  if (error) return toast(error.code === '23505' ? `O Type ${type} já existe.` : 'Erro: ' + error.message, true);
+  $('#novo-type').value = ''; $('#novo-custo').value = '';
+  toast(`Custo de ${type} adicionado.`);
+  carregar();
 });
 
 // ---------------------------------------------------------------- arranque

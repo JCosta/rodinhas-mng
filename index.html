@@ -28,6 +28,7 @@
         <button data-tab="painel" class="tab active">Painel</button>
         <button data-tab="clientes" class="tab">Subscritores</button>
         <button data-tab="importar" class="tab">Importar</button>
+        <button data-tab="config" class="tab">Configuração</button>
       </nav>
       <div class="user"><span id="user-email" class="muted"></span><button id="logout" class="btn ghost sm">Sair</button></div>
     </header>
@@ -47,7 +48,7 @@
           </div>
         </div>
         <div class="card">
-          <div class="card-head"><h2>Renovações nos próximos 12 meses</h2><span class="muted">valor a receber por mês</span></div>
+          <div class="card-head"><h2>Renovações nos próximos 12 meses</h2><span class="muted">valor bruto a receber por mês</span></div>
           <div id="meses" class="meses"></div>
         </div>
       </section>
@@ -80,6 +81,7 @@
               <th data-sort="periodicity">Avença</th>
               <th data-sort="value" class="num">Value</th>
               <th data-sort="commission" class="num">Commission</th>
+              <th data-sort="net_year" class="num" title="Value − Commission − custo do Type, por ano">Lucro/ano</th>
               <th data-sort="last_payment_date">Last Payment</th>
               <th data-sort="payment_due_date">Payment Due</th>
               <th data-sort="days_left" class="num">Dias</th>
@@ -124,6 +126,23 @@
               <span id="import-info" class="muted"></span>
             </div>
           </div>
+        </div>
+      </section>
+      <!-- Configuração -->
+      <section id="tab-config" class="tab-panel hidden">
+        <div class="card" style="max-width:640px">
+          <h2>Custos mensais por Type</h2>
+          <p class="muted">Custo mensal de cada subscritor, conforme o Type. Entra no cálculo do lucro: <b>Value − Commission − custo mensal × meses</b>.</p>
+          <table class="tabela" id="tabela-custos">
+            <thead><tr><th>Type</th><th class="num">Custo mensal (€)</th><th class="num">Subscritores</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="row">
+            <input id="novo-type" placeholder="Novo Type" style="max-width:140px">
+            <input id="novo-custo" type="number" step="0.01" min="0" placeholder="€ / mês" style="max-width:120px">
+            <button id="btn-add-custo" class="btn">Adicionar</button>
+          </div>
+          <p id="aviso-tipos" class="muted small"></p>
         </div>
       </section>
     </main>

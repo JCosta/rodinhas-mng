@@ -1,6 +1,6 @@
 # Gestão de Avenças
 
-Plataforma para gerir subscritores com avença semestral ou anual: quem está a vencer, quem está em atraso, renovações e histórico de pagamentos.
+Plataforma para gerir subscritores com avença semestral ou anual: quem está a vencer, quem está desligado, lucro, renovações e histórico de pagamentos.
 
 - **Frontend:** página estática (HTML + JS), alojada no GitHub Pages
 - **Dados e login:** Supabase (Postgres + Auth), protegido por Row Level Security. Só os utilizadores na tabela `admins` têm acesso.
@@ -18,9 +18,11 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 | Value | `value` | Valor por período de avença |
 | Commission | `commission` | Comissão por período |
 | Owner | `owner` | |
-| Type | `type` | Categoria livre |
+| Type | `type` | Categoria (ex.: C, P). O custo mensal de cada Type está na tabela `type_costs` |
 | HW | `hw` | Lista fixa: editar `HW_OPCOES` em `config.js` |
 | — | `periodicity` | `semestral` (por defeito) ou `anual`. Define quanto avança a data ao renovar |
+
+**Lucro:** lucro anual = Value anual − Commission anual − custo mensal do Type × 12. Os custos por Type editam-se no separador **Configuração** da app ou na tabela `type_costs` do Supabase.
 
 **Estados:** *Ativo*, *A vencer* (≤ 30 dias), *Desligado* (sem PaymentDueDate ou com a data já passada) ou *Cancelado* (manual).
 **Renovar:** regista o pagamento no histórico (`renewals`) e avança o PaymentDueDate em 6 ou 12 meses. Num desligado, o novo período começa na data do pagamento (editável). Também é possível um **reforço de 1 ou 3 meses**, com valores proporcionais.
