@@ -21,12 +21,12 @@ if (!res.ok) {
 }
 const todos = await res.json();
 const dias = Number(DIAS_AVISO);
-const atraso = todos.filter((s) => s.days_left < 0);
+const desligados = todos.filter((s) => s.days_left == null || s.days_left < 0);
 const aVencer = todos.filter((s) => s.days_left >= 0 && s.days_left <= dias);
 
-console.log(`Total: ${todos.length} · a vencer: ${aVencer.length} · em atraso: ${atraso.length}`);
+console.log(`Total: ${todos.length} · a vencer: ${aVencer.length} · desligados: ${desligados.length}`);
 
-if (!aVencer.length && !atraso.length) {
+if (!aVencer.length && !desligados.length) {
   console.log('Nada a avisar esta semana.');
   process.exit(0);
 }
@@ -42,13 +42,13 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const tabela = (lista) => `<table cellpadding="6" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px">
   <tr style="background:#f2f4f7;text-align:left"><th>ID</th><th>Owner</th><th>Type</th><th>HW</th><th>Value</th><th>Payment Due</th><th>Dias</th></tr>
   ${lista.map((s) => `<tr style="border-top:1px solid #e4e7ec"><td><b>${esc(s.code)}</b></td><td>${esc(s.owner)}</td><td>${esc(s.type)}</td><td>${esc(s.hw)}</td>
-    <td style="text-align:right">${eur(s.value)}</td><td>${data(s.payment_due_date)}</td><td style="text-align:right">${s.days_left}</td></tr>`).join('')}
+    <td style="text-align:right">${eur(s.value)}</td><td>${data(s.payment_due_date)}</td><td style="text-align:right">${s.days_left ?? '—'}</td></tr>`).join('')}
 </table>`;
 
 const soma = (l) => eur(l.reduce((t, s) => t + Number(s.value || 0), 0));
 const html = `<div style="font-family:Arial,sans-serif;color:#1c2430">
   <h2 style="margin:0 0 12px">Avenças — resumo semanal</h2>
-  ${atraso.length ? `<h3 style="color:#b42318">Em atraso (${atraso.length} · ${soma(atraso)})</h3>${tabela(atraso)}` : ''}
+  ${desligados.length ? `<h3 style="color:#b42318">Desligados (${desligados.length} · ${soma(desligados)})</h3>${tabela(desligados)}` : ''}
   ${aVencer.length ? `<h3 style="color:#a15c00">A vencer nos próximos ${dias} dias (${aVencer.length} · ${soma(aVencer)})</h3>${tabela(aVencer)}` : ''}
 </div>`;
 
@@ -62,7 +62,7 @@ const transporter = nodemailer.createTransport({
 await transporter.sendMail({
   from: SMTP_USER,
   to: EMAIL_TO,
-  subject: `Avenças: ${aVencer.length} a vencer, ${atraso.length} em atraso`,
+  subject: `Avenças: ${aVencer.length} a vencer, ${desligados.length} desligados`,
   html,
 });
 console.log('Email enviado para', EMAIL_TO);

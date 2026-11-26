@@ -35,7 +35,7 @@ function somaMeses(iso, meses) {
 const mesesDe = (p) => (p === 'anual' ? 12 : 6);
 const proximoVenc = (iso, p) => somaMeses(iso, mesesDe(p));
 
-const ESTADOS = { ativo: 'Ativo', a_terminar: 'A terminar', expirado: 'Expirado', cancelado: 'Cancelado' };
+const ESTADOS = { ativo: 'Ativo', a_terminar: 'A vencer', desligado: 'Desligado', cancelado: 'Cancelado' };
 const badge = (e) => `<span class="badge ${e}">${ESTADOS[e] ?? e}</span>`;
 const PER = { semestral: 'Semestral', anual: 'Anual' };
 const titulo = (s) => s.owner ? `${s.code} · ${s.owner}` : s.code;
@@ -43,6 +43,7 @@ const titulo = (s) => s.owner ? `${s.code} · ${s.owner}` : s.code;
 function textoDias(s) {
   if (s.status === 'cancelado') return '—';
   const d = s.days_left;
+  if (d === null || d === undefined) return 'sem data';
   if (d === 0) return 'vence hoje';
   if (d < 0) return `há ${-d} dia${d === -1 ? '' : 's'}`;
   return `${d} dia${d === 1 ? '' : 's'}`;
@@ -144,7 +145,7 @@ function renderPainel() {
   const cs = S.subs;
   const vivos = cs.filter((s) => s.status === 'ativo' || s.status === 'a_terminar');
   const aTerminar = cs.filter((s) => s.status === 'a_terminar').sort((a, b) => a.days_left - b.days_left);
-  const expirados = cs.filter((s) => s.status === 'expirado').sort((a, b) => b.days_left - a.days_left);
+  const desligados = cs.filter((s) => s.status === 'desligado').sort((a, b) => (b.days_left ?? -1e9) - (a.days_left ?? -1e9));
   const receita = vivos.reduce((t, s) => t + Number(s.value_year || 0), 0);
   const comissoes = vivos.reduce((t, s) => t + Number(s.commission_year || 0), 0);
   const soma = (arr) => arr.reduce((t, s) => t + Number(s.value || 0), 0);
@@ -155,15 +156,15 @@ function renderPainel() {
     <div class="kpi"><div class="lbl">Receita anual recorrente</div><div class="val">${eur(receita)}</div>
       <div class="sub">comissões ${eur(comissoes)} · líquido ${eur(receita - comissoes)}</div></div>
     <div class="kpi warn"><div class="lbl">A vencer (${DIAS_AVISO} dias)</div><div class="val">${aTerminar.length}</div><div class="sub">${eur(soma(aTerminar))} a receber</div></div>
-    <div class="kpi bad"><div class="lbl">Em atraso</div><div class="val">${expirados.length}</div><div class="sub">${eur(soma(expirados))} por receber</div></div>`;
+    <div class="kpi bad"><div class="lbl">Desligados</div><div class="val">${desligados.length}</div><div class="sub">sem pagamento em dia</div></div>`;
 
   $('#aviso-dias').textContent = `próximos ${DIAS_AVISO} dias`;
   const item = (s) => `<div class="item">
-      <div class="who"><b data-editar="${s.id}">${esc(titulo(s))}</b><span>${[s.type, s.hw, PER[s.periodicity], eur(s.value)].filter(Boolean).map(esc).join(' · ')} · vence ${fmtData(s.payment_due_date)}</span></div>
+      <div class="who"><b data-editar="${s.id}">${esc(titulo(s))}</b><span>${[s.type, s.hw, PER[s.periodicity], eur(s.value)].filter(Boolean).map(esc).join(' · ')} · ${s.payment_due_date ? 'vence ' + fmtData(s.payment_due_date) : 'sem data de pagamento'}</span></div>
       <div class="dias">${textoDias(s)}</div>
       <button class="btn sm" data-renovar="${s.id}">Renovar</button></div>`;
   $('#lista-a-terminar').innerHTML = aTerminar.map(item).join('') || '<p class="vazio">Nada a vencer. 👌</p>';
-  $('#lista-expirados').innerHTML = expirados.map(item).join('') || '<p class="vazio">Sem pagamentos em atraso.</p>';
+  $('#lista-desligados').innerHTML = desligados.map(item).join('') || '<p class="vazio">Nenhum desligado.</p>';
 
   // Próximos 12 meses: valor a receber por mês (subscritores em vigor)
   const hoje = new Date();
@@ -175,6 +176,7 @@ function renderPainel() {
   const limite = meses[11].chave;
   for (const s of vivos) {
     let venc = s.payment_due_date;
+    if (!venc) continue;
     while (venc.slice(0, 7) <= limite) {
       const m = meses.find((x) => x.chave === venc.slice(0, 7));
       if (m) m.v += Number(s.value || 0);
@@ -199,7 +201,7 @@ function filtrados() {
     .filter((s) => !q || [s.code, s.owner, s.type, s.hw, s.notes].some((v) => String(v ?? '').toLowerCase().includes(q)))
     .sort((a, b) => {
       let x = a[campo], y = b[campo];
-      if (numericos.includes(campo)) { x = Number(x); y = Number(y); return (x - y) * (asc ? 1 : -1); }
+      if (numericos.includes(campo)) { x = x ?? -1e9; y = y ?? -1e9; return (Number(x) - Number(y)) * (asc ? 1 : -1); }
       return String(x ?? '').localeCompare(String(y ?? ''), 'pt', { numeric: true }) * (asc ? 1 : -1);
     });
 }
@@ -216,7 +218,7 @@ function renderLista() {
       <td class="num">${eur(s.commission)}</td>
       <td>${fmtData(s.last_payment_date)}</td>
       <td>${fmtData(s.payment_due_date)}</td>
-      <td class="num">${s.status === 'cancelado' ? '—' : s.days_left}</td>
+      <td class="num">${s.status === 'cancelado' || s.days_left == null ? '—' : s.days_left}</td>
       <td>${badge(s.status)}</td>
       <td><div class="acoes"><button class="btn sm" data-renovar="${s.id}">Renovar</button><button class="btn sm ghost" data-editar="${s.id}">Editar</button></div></td>
     </tr>`).join('');
@@ -272,7 +274,7 @@ async function abrirSub(id) {
       <label>Value (€ por período)<input name="value" type="number" step="0.01" min="0" value="${esc(v.value)}"></label>
       <label>Commission (€ por período)<input name="commission" type="number" step="0.01" min="0" value="${esc(v.commission)}"></label>
       <label>Last Payment Date<input name="last_payment_date" type="date" value="${esc(v.last_payment_date)}"></label>
-      <label>Payment Due Date *<input name="payment_due_date" type="date" required value="${esc(v.payment_due_date)}"></label>
+      <label>Payment Due Date<input name="payment_due_date" type="date" value="${esc(v.payment_due_date)}"></label>
       <label class="full">Notas<textarea name="notes">${esc(v.notes)}</textarea></label>
       ${s ? `<label class="check full"><input type="checkbox" name="cancelado" ${s.active ? '' : 'checked'}> Cancelado (deixa de contar e de aparecer nos avisos)</label>` : ''}
     </form>
@@ -307,7 +309,7 @@ async function abrirSub(id) {
       value: Number(f.get('value')) || 0,
       commission: Number(f.get('commission')) || 0,
       last_payment_date: t('last_payment_date'),
-      payment_due_date: f.get('payment_due_date'),
+      payment_due_date: t('payment_due_date'),
       notes: t('notes'),
     };
     if (s) reg.active = !f.get('cancelado');
@@ -351,20 +353,38 @@ async function abrirSub(id) {
 function abrirRenovar(id) {
   const s = S.subs.find((x) => x.id === id);
   if (!s) return;
-  const novo = proximoVenc(s.payment_due_date, s.periodicity);
+  const hoje = hojeISO();
+  // Desligado (sem data ou data passada) → novo período começa no dia do pagamento; senão mantém o ciclo
+  const inicioAuto = () => (s.status === 'desligado' ? $('#form-renovar [name=payment_date]').value || hoje : s.payment_due_date);
   const corpo = abrirModal(`Renovar — ${titulo(s)}`, `
-    <div class="info">Avença <b>${PER[s.periodicity].toLowerCase()}</b>. Payment Due passa de <b>${fmtData(s.payment_due_date)}</b> para <b>${fmtData(novo)}</b>.</div>
+    <div class="info" id="renov-info"></div>
     <form class="form" id="form-renovar" style="margin-top:14px">
       <label>Value (€)<input name="value" type="number" step="0.01" min="0" value="${esc(s.value)}"></label>
       <label>Commission (€)<input name="commission" type="number" step="0.01" min="0" value="${esc(s.commission)}"></label>
-      <label>Data do pagamento<input name="payment_date" type="date" value="${hojeISO()}"></label>
-      <label class="check" style="align-self:end"><input type="checkbox" name="paid" checked> Já está pago</label>
+      <label>Data do pagamento<input name="payment_date" type="date" value="${hoje}"></label>
+      <label>Início do novo período<input name="start" type="date" required></label>
+      <label class="check full"><input type="checkbox" name="paid" checked> Já está pago</label>
       <label class="full">Notas<input name="notes" placeholder="Ex.: fatura, referência da transferência…"></label>
     </form>
     <div class="row end"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="btn-ok">Confirmar renovação</button></div>`);
+  const form = $('#form-renovar', corpo);
+  let startManual = false;
+  const atualizar = () => {
+    if (!startManual) form.start.value = inicioAuto();
+    const novo = form.start.value ? proximoVenc(form.start.value, s.periodicity) : null;
+    $('#renov-info', corpo).innerHTML = `Avença <b>${PER[s.periodicity].toLowerCase()}</b>. Payment Due: <b>${s.payment_due_date ? fmtData(s.payment_due_date) : 'sem data'}</b> → <b>${novo ? fmtData(novo) : '—'}</b>` +
+      (s.status === 'desligado' ? '<br><span class="muted small">Está desligado, por isso o novo período começa na data do pagamento.</span>' : '');
+    return novo;
+  };
+  form.start.addEventListener('change', () => { startManual = true; atualizar(); });
+  form.payment_date.addEventListener('change', atualizar);
+  atualizar();
+
   $('#btn-ok', corpo).addEventListener('click', async (e) => {
+    if (!form.reportValidity()) return;
     e.target.disabled = true;
-    const f = new FormData($('#form-renovar', corpo));
+    const f = new FormData(form);
+    const novo = atualizar();
     const { error } = await sb.rpc('renew_subscriber', {
       p_id: s.id,
       p_value: Number(f.get('value')) || 0,
@@ -372,6 +392,7 @@ function abrirRenovar(id) {
       p_paid: !!f.get('paid'),
       p_notes: f.get('notes').trim() || null,
       p_payment_date: f.get('payment_date') || null,
+      p_start: f.get('start'),
     });
     if (error) { e.target.disabled = false; return toast('Erro ao renovar: ' + error.message, true); }
     fecharModal();
@@ -532,10 +553,9 @@ function converter() {
     let due = lerData(get(l, 'payment_due_date'));
     if (!due && last) due = proximoVenc(last, periodicity);
     if (!code) return erros.push(`Linha ${i + 2}: sem ID`);
-    if (!due) return erros.push(`Linha ${i + 2} (${code}): sem PaymentDueDate nem LastPaymentDate`);
     porCodigo.set(code, { // IDs repetidos: fica a última linha
       code,
-      payment_due_date: due,
+      payment_due_date: due || null,
       last_payment_date: last,
       value: lerValor(get(l, 'value')),
       commission: lerValor(get(l, 'commission')),

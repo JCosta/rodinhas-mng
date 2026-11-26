@@ -4,7 +4,7 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 
 - **Frontend:** página estática (HTML + JS), alojada no GitHub Pages
 - **Dados e login:** Supabase (Postgres + Auth), protegido por Row Level Security. Só os utilizadores na tabela `admins` têm acesso.
-- **Avisos:** GitHub Action que envia um email semanal com os pagamentos a vencer ou em atraso
+- **Avisos:** GitHub Action que envia um email semanal com os pagamentos a vencer e os desligados
 
 > **Estado: preparado, mas não ativo.** O repositório está privado, o GitHub Pages está desligado e a Action dos avisos não está agendada. Segue os passos abaixo quando quiseres pôr a plataforma a funcionar.
 
@@ -13,7 +13,7 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 | Campo (folha) | Coluna na BD | Notas |
 |---|---|---|
 | ID | `code` | Identificador único do subscritor |
-| PaymentDueDate | `payment_due_date` | Data do próximo pagamento |
+| PaymentDueDate | `payment_due_date` | Data do próximo pagamento (vazio ou passado = desligado) |
 | LastPaymentDate | `last_payment_date` | Atualizado automaticamente ao renovar como pago |
 | Value | `value` | Valor por período de avença |
 | Commission | `commission` | Comissão por período |
@@ -22,8 +22,10 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 | HW | `hw` | Lista fixa: editar `HW_OPCOES` em `config.js` |
 | — | `periodicity` | `semestral` (por defeito) ou `anual`. Define quanto avança a data ao renovar |
 
-**Estados:** *Ativo*, *A vencer* (≤ 30 dias), *Em atraso* (data já passou) ou *Cancelado*.
-**Renovar:** regista o pagamento no histórico (`renewals`) e avança o PaymentDueDate em 6 ou 12 meses.
+**Estados:** *Ativo*, *A vencer* (≤ 30 dias), *Desligado* (sem PaymentDueDate ou com a data já passada) ou *Cancelado* (manual).
+**Renovar:** regista o pagamento no histórico (`renewals`) e avança o PaymentDueDate em 6 ou 12 meses. Num desligado, o novo período começa na data do pagamento (editável).
+
+**Atualizações de base de dados:** quem já correu o `schema.sql` antes deve correr os ficheiros em `supabase/migrations/` por ordem. O `schema.sql` já inclui tudo para instalações novas.
 
 ## Ativar (passo a passo)
 

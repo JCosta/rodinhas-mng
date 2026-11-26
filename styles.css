@@ -109,7 +109,7 @@ main { max-width: 1360px; margin: 0 auto; padding: 24px; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .badge.ativo { color: var(--ok); background: var(--ok-bg); }
 .badge.a_terminar { color: var(--warn); background: var(--warn-bg); }
-.badge.expirado { color: var(--bad); background: var(--bad-bg); }
+.badge.desligado { color: var(--bad); background: var(--bad-bg); }
 .badge.cancelado { color: var(--off); background: var(--off-bg); }
 
 /* Modal */

@@ -9,7 +9,7 @@ create table if not exists public.subscribers (
   id                 uuid primary key default gen_random_uuid(),
   user_id            uuid default auth.uid() references auth.users(id) on delete set null,  -- quem criou
   code               text not null,                 -- "ID" do subscritor (o teu identificador)
-  payment_due_date   date not null,                 -- "PaymentDueDate": data do próximo pagamento
+  payment_due_date   date,                          -- "PaymentDueDate": próximo pagamento (vazio ou passado = desligado)
   last_payment_date  date,                          -- "LastPaymentDate"
   value              numeric(10,2) not null default 0,  -- "Value": valor por período de avença
   commission         numeric(10,2) not null default 0,  -- "Commission": comissão por período
@@ -111,7 +111,8 @@ select
   (s.payment_due_date - current_date) as days_left,
   case
     when not s.active                             then 'cancelado'
-    when s.payment_due_date <  current_date       then 'expirado'
+    when s.payment_due_date is null
+      or s.payment_due_date <  current_date       then 'desligado'
     when s.payment_due_date <= current_date + 30  then 'a_terminar'
     else 'ativo'
   end as status,
@@ -123,14 +124,17 @@ revoke all on public.subscribers_status from anon;
 grant select on public.subscribers_status to authenticated, service_role;
 
 -- ---------- Renovar: regista o pagamento e avança o PaymentDueDate ----------
--- O próximo vencimento = vencimento atual + 6 meses (semestral) ou + 1 ano (anual), mantendo o ciclo.
+-- Por defeito o novo período começa no PaymentDueDate atual (mantém o ciclo);
+-- se não houver data, começa na data do pagamento. p_start permite escolher outro início.
+drop function if exists public.renew_subscriber(uuid, numeric, numeric, boolean, text, date);
 create or replace function public.renew_subscriber(
   p_id            uuid,
   p_value         numeric default null,   -- null = Value atual
   p_commission    numeric default null,   -- null = Commission atual
   p_paid          boolean default true,
   p_notes         text default null,
-  p_payment_date  date default null       -- null = hoje
+  p_payment_date  date default null,      -- null = hoje
+  p_start         date default null       -- início do novo período (null = automático)
 )
 returns public.subscribers
 language plpgsql
@@ -148,8 +152,7 @@ begin
     raise exception 'Subscritor não encontrado ou sem permissão';
   end if;
 
-  -- período pago: do vencimento atual até ao próximo vencimento
-  v_ini := s.payment_due_date;
+  v_ini := coalesce(p_start, s.payment_due_date, v_dt);
   v_fim := (v_ini + case s.periodicity when 'anual' then interval '1 year' else interval '6 months' end)::date;
 
   insert into public.renewals (subscriber_id, payment_date, period_start, period_end, value, commission, paid, notes)
@@ -167,8 +170,8 @@ begin
   return s;
 end $$;
 
-revoke all on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date) from public, anon;
-grant execute on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date) to authenticated;
+revoke all on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date) from public, anon;
+grant execute on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date) to authenticated;
 
 -- =====================================================================
 -- DEPOIS de correr o script acima:
