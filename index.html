@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Gestão de Avenças</title>
-  <link rel="stylesheet" href="styles.css?v=202611261507">
+  <link rel="stylesheet" href="styles.css?v=202611261520">
 </head>
 <body>
   <!-- Login -->
@@ -38,25 +38,31 @@
     <main>
       <!-- Painel -->
       <section id="tab-painel" class="tab-panel">
+        <div class="toolbar">
+          <input id="p-pesquisa" type="search" placeholder="🔎 Pesquisar ID ou Owner…">
+          <span class="spacer"></span>
+          <button id="p-expandir" class="btn ghost sm">Expandir tudo</button>
+          <button id="p-colapsar" class="btn ghost sm">Colapsar tudo</button>
+        </div>
         <div class="kpis" id="kpis"></div>
         <div class="grid2">
-          <div class="card">
-            <div class="card-head"><h2>A vencer</h2><span class="muted" id="aviso-dias"></span></div>
-            <div id="lista-a-terminar"></div>
+          <div class="card sec" data-sec="a_terminar">
+            <button class="card-head sec-head" type="button"><h2><span class="emo">⏰</span> A vencer <span class="cnt" id="cnt-a_terminar"></span></h2><span class="muted" id="aviso-dias"></span><span class="chev">▾</span></button>
+            <div class="sec-body" id="lista-a-terminar"></div>
           </div>
-          <div class="card">
-            <div class="card-head"><h2>Em atraso</h2><span class="muted">pagamento passado · continuam ligados</span></div>
-            <div id="lista-em-atraso"></div>
+          <div class="card sec" data-sec="em_atraso">
+            <button class="card-head sec-head" type="button"><h2><span class="emo">⚠️</span> Em atraso <span class="cnt" id="cnt-em_atraso"></span></h2><span class="muted">pagamento passado · continuam ligados</span><span class="chev">▾</span></button>
+            <div class="sec-body" id="lista-em-atraso"></div>
           </div>
         </div>
         <div class="grid2">
-          <div class="card">
-            <div class="card-head"><h2>Desligados</h2><span class="muted">pagamento passado</span></div>
-            <div id="lista-desligados"></div>
+          <div class="card sec" data-sec="desligado">
+            <button class="card-head sec-head" type="button"><h2><span class="emo">🔌</span> Desligados <span class="cnt" id="cnt-desligado"></span></h2><span class="muted">pagamento passado</span><span class="chev">▾</span></button>
+            <div class="sec-body" id="lista-desligados"></div>
           </div>
-          <div class="card">
-            <div class="card-head"><h2>Arquivados</h2><span class="muted">sem PaymentDueDate · reativáveis</span></div>
-            <div id="lista-arquivados"></div>
+          <div class="card sec" data-sec="arquivado">
+            <button class="card-head sec-head" type="button"><h2><span class="emo">🗄️</span> Arquivados <span class="cnt" id="cnt-arquivado"></span></h2><span class="muted">sem PaymentDueDate · reativáveis</span><span class="chev">▾</span></button>
+            <div class="sec-body" id="lista-arquivados"></div>
           </div>
         </div>
       </section>
@@ -240,6 +246,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="app.js?v=202611261507"></script>
+  <script type="module" src="app.js?v=202611261520"></script>
 </body>
 </html>

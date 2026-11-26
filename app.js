@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261507';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261520';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -170,8 +170,47 @@ $$('.tab').forEach((b) => b.addEventListener('click', () => {
 }));
 
 // ---------------------------------------------------------------- painel (só operacional)
+const EMO = { ligados: '🟢', a_terminar: '⏰', em_atraso: '⚠️', desligado: '🔌', arquivado: '🗄️' };
+const lerLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const gravarLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sem armazenamento */ } };
+const SEC_FECHADAS = new Set(lerLS('painel.fechadas', []));
+
+function aplicarSecoes() {
+  $$('#tab-painel .sec').forEach((el) => el.classList.toggle('fechada', SEC_FECHADAS.has(el.dataset.sec)));
+}
+$$('#tab-painel .sec-head').forEach((b) => b.addEventListener('click', () => {
+  const k = b.closest('.sec').dataset.sec;
+  SEC_FECHADAS.has(k) ? SEC_FECHADAS.delete(k) : SEC_FECHADAS.add(k);
+  gravarLS('painel.fechadas', [...SEC_FECHADAS]);
+  aplicarSecoes();
+}));
+$('#p-expandir').addEventListener('click', () => { SEC_FECHADAS.clear(); gravarLS('painel.fechadas', []); aplicarSecoes(); });
+$('#p-colapsar').addEventListener('click', () => {
+  $$('#tab-painel .sec').forEach((el) => SEC_FECHADAS.add(el.dataset.sec));
+  gravarLS('painel.fechadas', [...SEC_FECHADAS]); aplicarSecoes();
+});
+let tPainel;
+$('#p-pesquisa').addEventListener('input', () => { clearTimeout(tPainel); tPainel = setTimeout(renderPainel, 150); });
+// Clicar num indicador abre a secção e salta para ela
+$('#kpis').addEventListener('click', (e) => {
+  const k = e.target.closest('[data-ir]')?.dataset.ir;
+  if (!k) return;
+  SEC_FECHADAS.delete(k); gravarLS('painel.fechadas', [...SEC_FECHADAS]); aplicarSecoes();
+  $(`#tab-painel .sec[data-sec="${k}"]`).scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+function realcar(texto, q) {
+  const t = esc(texto);
+  if (!q) return t;
+  const i = String(texto).toLowerCase().indexOf(q);
+  if (i < 0) return t;
+  return esc(String(texto).slice(0, i)) + '<mark>' + esc(String(texto).slice(i, i + q.length)) + '</mark>' + esc(String(texto).slice(i + q.length));
+}
+
 function renderPainel() {
+  const q = $('#p-pesquisa').value.trim().toLowerCase();
   const cs = S.subs;
+  const corresponde = (s) => !q || String(s.code).toLowerCase().includes(q) || String(s.owner ?? '').toLowerCase().includes(q);
   const por = (st) => cs.filter((s) => s.status === st);
   const ligados = cs.filter((s) => LIGADOS.includes(s.status));
   const aTerminar = por('a_terminar').sort((a, b) => a.days_left - b.days_left);
@@ -180,26 +219,35 @@ function renderPainel() {
   const arquivados = por('arquivado').sort((a, b) => String(a.code).localeCompare(String(b.code), 'pt', { numeric: true }));
 
   $('#kpis').innerHTML = `
-    <div class="kpi"><div class="lbl">Ligados</div><div class="val">${ligados.length}</div>
+    <div class="kpi"><div class="lbl">${EMO.ligados} Ligados</div><div class="val">${ligados.length}</div>
       <div class="sub">${ligados.filter((s) => s.periodicity === 'semestral').length} semestrais · ${ligados.filter((s) => s.periodicity === 'anual').length} anuais</div></div>
-    <div class="kpi warn"><div class="lbl">A vencer (${DIAS_AVISO} dias)</div><div class="val">${aTerminar.length}</div>
+    <div class="kpi warn" data-ir="a_terminar"><div class="lbl">${EMO.a_terminar} A vencer (${DIAS_AVISO} dias)</div><div class="val">${aTerminar.length}</div>
       <div class="sub">${aTerminar.filter((s) => s.last_notified_at).length} já avisados</div></div>
-    <div class="kpi late"><div class="lbl">Em atraso</div><div class="val">${emAtraso.length}</div>
+    <div class="kpi late" data-ir="em_atraso"><div class="lbl">${EMO.em_atraso} Em atraso</div><div class="val">${emAtraso.length}</div>
       <div class="sub">${emAtraso.length ? `o mais antigo há ${-emAtraso[0].days_left} dias` : 'ligados sem pagamento'}</div></div>
-    <div class="kpi bad"><div class="lbl">Desligados</div><div class="val">${desligados.length}</div><div class="sub">pagamento passado</div></div>
-    <div class="kpi off"><div class="lbl">Arquivados</div><div class="val">${arquivados.length}</div><div class="sub">sem data</div></div>`;
+    <div class="kpi bad" data-ir="desligado"><div class="lbl">${EMO.desligado} Desligados</div><div class="val">${desligados.length}</div><div class="sub">pagamento passado</div></div>
+    <div class="kpi off" data-ir="arquivado"><div class="lbl">${EMO.arquivado} Arquivados</div><div class="val">${arquivados.length}</div><div class="sub">sem data</div></div>`;
 
   $('#aviso-dias').textContent = `próximos ${DIAS_AVISO} dias`;
   const item = (s, extra = '') => `<div class="item"${estiloType(s.type)}>
-      <div class="who"><b data-editar="${s.id}">${chipType(s.type)} ${esc(titulo(s))}</b><span>${[s.hw, PER[s.periodicity]].filter(Boolean).map(esc).join(' · ')} · ${s.payment_due_date ? (s.days_left < 0 ? 'venceu ' : 'vence ') + fmtData(s.payment_due_date) : 'sem data de pagamento'}</span></div>
+      <div class="who"><b data-editar="${s.id}">${chipType(s.type)} ${realcar(s.code, q)}${s.owner ? ' · ' + realcar(s.owner, q) : ''}</b><span>${[s.hw, PER[s.periodicity]].filter(Boolean).map(esc).join(' · ')} · ${s.payment_due_date ? (s.days_left < 0 ? 'venceu ' : 'vence ') + fmtData(s.payment_due_date) : 'sem data de pagamento'}</span></div>
       <div class="dias">${textoDias(s)}</div>${extra}
       <button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button></div>`;
   const bManter = (s) => `<button class="btn sm ghost" data-manter="${s.id}" title="Continua com serviço apesar do pagamento em atraso">Manter ligado</button>`;
   const bDesligar = (s) => `<button class="btn sm ghost danger" data-desligar="${s.id}" title="Passa para Desligados">Desligar</button>`;
-  $('#lista-a-terminar').innerHTML = aTerminar.map((s) => item(s, botaoWA(s))).join('') || '<p class="vazio">Nada a vencer. 👌</p>';
-  $('#lista-em-atraso').innerHTML = emAtraso.map((s) => item(s, botaoWA(s) + bDesligar(s))).join('') || '<p class="vazio">Ninguém em atraso.</p>';
-  $('#lista-desligados').innerHTML = desligados.map((s) => item(s, bManter(s))).join('') || '<p class="vazio">Nenhum desligado.</p>';
-  $('#lista-arquivados').innerHTML = arquivados.map((s) => item(s)).join('') || '<p class="vazio">Nenhum arquivado.</p>';
+  const secao = (id, chave, lista, render, vazio) => {
+    const f = lista.filter(corresponde);
+    $('#cnt-' + chave).textContent = q ? `${f.length} de ${lista.length}` : lista.length;
+    $(id).innerHTML = f.map(render).join('') || `<p class="vazio">${q ? 'Sem resultados para a pesquisa.' : vazio}</p>`;
+  };
+  secao('#lista-a-terminar', 'a_terminar', aTerminar, (s) => item(s, botaoWA(s)), 'Nada a vencer. 👌');
+  secao('#lista-em-atraso', 'em_atraso', emAtraso, (s) => item(s, botaoWA(s) + bDesligar(s)), 'Ninguém em atraso. 👌');
+  secao('#lista-desligados', 'desligado', desligados, (s) => item(s, bManter(s)), 'Nenhum desligado.');
+  secao('#lista-arquivados', 'arquivado', arquivados, (s) => item(s), 'Nenhum arquivado.');
+
+  // Com pesquisa ativa, abre as secções que têm resultados (sem alterar a preferência guardada)
+  if (q) $$('#tab-painel .sec').forEach((el) => el.classList.toggle('fechada', !$('.item', el)));
+  else aplicarSecoes();
 }
 
 // Manter ligado / Desligar (pagamento em atraso)
