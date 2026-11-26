@@ -9,7 +9,7 @@ if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
 }
 
 // tabela → coluna para ordenar (paginação estável)
-const TABELAS = { subscribers: 'id', renewals: 'id', type_costs: 'type', payment_methods: 'name', app_settings: 'key', admins: 'user_id', audit_log: 'id' };
+const TABELAS = { subscribers: 'id', renewals: 'id', type_costs: 'type', payment_methods: 'name', resellers: 'id', app_settings: 'key', admins: 'user_id', audit_log: 'id' };
 const PAGINA = 1000;
 
 async function exportar(tabela) {

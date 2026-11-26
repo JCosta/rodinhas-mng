@@ -423,6 +423,11 @@ html { -webkit-text-size-adjust: 100%; }
   .tabela-audit.cartoes td.c-det { grid-column: 1 / -1; min-width: 0; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 4px; }
   #sel-todos { display: none; }
   .tabela-hist td.c-acoes { grid-column: 1 / -1; }
+  #rv-comissoes td.sel { position: absolute; top: 12px; right: 12px; padding: 0; }
+  #rv-comissoes td.c-id, #rv-comissoes td.c-acoes { grid-column: 1 / -1; }
+  #rv-comissoes .acoes .btn { flex: 1; }
+  #tab-revendedores .toolbar label { flex: 1 1 100%; }
+  #rv-pagar-sel { flex: 1 1 100%; }
   .tabela-hist .acoes .btn { flex: 1; }
   /* subscritores: cartão compacto (3 colunas, estado no topo) */
   #tabela-subs tr { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-top: 10px; }

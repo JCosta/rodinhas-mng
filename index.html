@@ -18,7 +18,7 @@
     // tema escolhido (antes de desenhar a página, para não piscar)
     try { const t = localStorage.getItem('tema'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="styles.css?v=202611261613">
+  <link rel="stylesheet" href="styles.css?v=202611261617">
 </head>
 <body>
   <!-- Login -->
@@ -42,6 +42,7 @@
         <button data-tab="clientes" class="tab">Subscritores</button>
         <button data-tab="calendario" class="tab">Calendário</button>
         <button data-tab="financeiro" class="tab">Financeiro</button>
+        <button data-tab="revendedores" class="tab">Revendedores</button>
         <button data-tab="importar" class="tab">Importar</button>
         <button data-tab="config" class="tab">Configuração</button>
         <button data-tab="auditoria" class="tab">Auditoria</button>
@@ -104,6 +105,35 @@
         </div>
       </section>
 
+      <!-- Revendedores -->
+      <section id="tab-revendedores" class="tab-panel hidden">
+        <div class="kpis" id="rv-kpis"></div>
+        <div class="card">
+          <div class="card-head"><h2>🤝 Revendedores</h2><span class="muted">comissões a pagar só depois de o cliente pagar</span></div>
+          <div class="scroll" style="border:none;max-height:none"><table class="tabela" id="rv-tabela"></table></div>
+          <div class="row">
+            <input id="rv-novo-nome" placeholder="Nome do revendedor" style="max-width:220px">
+            <input id="rv-novo-contacto" placeholder="Contacto (opcional)" style="max-width:200px">
+            <button id="rv-add" class="btn">+ Adicionar revendedor</button>
+          </div>
+        </div>
+        <div class="card hidden" id="rv-detalhe">
+          <div class="card-head"><h2 id="rv-det-titulo"></h2><button class="btn sm ghost" id="rv-fechar" type="button">✕ Fechar</button></div>
+          <div class="toolbar">
+            <select id="rv-filtro">
+              <option value="porpagar">Por pagar</option>
+              <option value="pagas">Pagas</option>
+              <option value="aguarda">À espera do pagamento do cliente</option>
+              <option value="todas">Todas</option>
+            </select>
+            <span class="spacer"></span>
+            <label class="check" style="flex-direction:row;align-items:center;gap:6px">Pagas em <input id="rv-data" type="date" style="width:auto"></label>
+            <button id="rv-pagar-sel" class="btn primary" type="button" disabled>Marcar selecionadas como pagas</button>
+          </div>
+          <div class="scroll" style="border:none;max-height:none"><table class="tabela cartoes" id="rv-comissoes"></table></div>
+        </div>
+      </section>
+
       <!-- Financeiro -->
       <section id="tab-financeiro" class="tab-panel hidden">
         <div class="kpis" id="fin-kpis"></div>
@@ -150,6 +180,7 @@
           <select id="f-owner"><option value="">Todos os owners</option></select>
           <select id="f-type"><option value="">Todos os types</option></select>
           <select id="f-hw"><option value="">Todos os HW</option></select>
+          <select id="f-reseller"><option value="">Todos os revendedores</option></select>
           <span class="spacer"></span>
           <button id="btn-apagar-sel" class="btn danger hidden">Apagar selecionados</button>
           <button id="btn-exportar" class="btn ghost">Exportar CSV</button>
@@ -161,6 +192,7 @@
               <th class="sel"><input type="checkbox" id="sel-todos" title="Selecionar todos os visíveis"></th>
               <th data-sort="code">ID</th>
               <th data-sort="owner">Owner</th>
+              <th data-sort="reseller_name">Revendedor</th>
               <th data-sort="type">Type</th>
               <th data-sort="hw">HW</th>
               <th data-sort="periodicity">Avença</th>
@@ -295,6 +327,6 @@
   <div id="toast" class="toast hidden"></div>
   <div id="toast-desfazer" class="toast desfazer hidden" role="status"></div>
 
-  <script type="module" src="app.js?v=202611261613"></script>
+  <script type="module" src="app.js?v=202611261617"></script>
 </body>
 </html>

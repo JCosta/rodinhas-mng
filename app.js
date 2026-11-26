@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS } from './config.js?v=202611261613';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS } from './config.js?v=202611261617';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -10,7 +10,9 @@ const S = {
   waTemplate: '',
   sel: new Set(),   // ids selecionados na lista
   pagamentos: [],
-  naoPagos: [],     // pagamentos registados como não pagos (todos)
+  naoPagos: [],
+  revend: [],       // revendedores
+  comissoes: [],    // pagamentos com comissão e revendedor     // pagamentos registados como não pagos (todos)
   metodos: [],      // métodos de pagamento   // renovações dos últimos 12 meses (separador Financeiro)
   sort: { campo: 'payment_due_date', asc: true },
 };
@@ -175,13 +177,15 @@ async function carregar() {
     $('#login-erro').textContent = 'Esta conta não tem acesso de administrador.';
     return;
   }
-  const [r1, rc, rs, rm, rnp, rp] = await Promise.all([
+  const [r1, rc, rs, rm, rnp, rp, rrv, rcm] = await Promise.all([
     sb.from('subscribers_status').select('*').order('payment_due_date'),
     sb.from('type_costs').select('*').order('type'),
     sb.from('app_settings').select('*').eq('key', 'whatsapp_template'),
     sb.from('payment_methods').select('name,sort_order').order('sort_order').order('name'),
     sb.from('renewals').select('id,subscriber_id,payment_date,period_start,period_end,value,commission,payment_method,notes').eq('paid', false).order('payment_date'),
     sb.from('renewals').select('payment_date,value,commission,paid,payment_method').gte('payment_date', somaMeses(hojeISO().slice(0, 8) + '01', -11)),
+    sb.from('resellers').select('*').order('name'),
+    sb.from('renewals').select('id,subscriber_id,reseller_id,payment_date,period_start,period_end,value,commission,paid,commission_paid,commission_paid_at').gt('commission', 0).not('reseller_id', 'is', null).order('payment_date', { ascending: false })
   ]);
   S.erroCustos = rc.error ? rc.error.message : null;
   S.metodos = rm.error ? [] : rm.data.map((m) => m.name);
@@ -195,15 +199,23 @@ async function carregar() {
   S.subs = r1.data;
   S.pagamentos = rp.error ? [] : rp.data;
   S.naoPagos = rnp.error ? [] : rnp.data;
+  S.revend = rrv.error ? [] : rrv.data;
+  S.erroRevend = rrv.error ? rrv.error.message : null;
+  S.comissoes = rcm.error ? [] : rcm.data.filter((c) => c.reseller_id);
   preencherFiltros();
   renderConfig();
   renderPainel();
   renderLista();
   renderFinanceiro();
   renderCalendario();
+  renderRevendedores();
 }
 
+const nomeRev = (id) => S.revend.find((r) => r.id === id)?.name || '';
 function preencherFiltros() {
+  { const sel = $('#f-reseller'), atual = sel.value;
+    sel.innerHTML = '<option value="">Todos os revendedores</option><option value="__sem">Sem revendedor</option>' + S.revend.map((r) => `<option value="${r.id}" ${r.id === atual ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
+    if (atual === '__sem') sel.value = '__sem'; }
   for (const [id, campo, rot] of [['#f-owner', 'owner', 'Todos os owners'], ['#f-type', 'type', 'Todos os types'], ['#f-hw', 'hw', 'Todos os HW']]) {
     const sel = $(id);
     const atual = sel.value;
@@ -359,6 +371,12 @@ function renderHoje(naoPagos) {
   for (const r of naoPagos) {
     acoes.push({ p: 5, o: r.payment_date, html: `<span class="emo">💸</span><div class="txt">${quem(r.sub)}<br><span>Pagamento por receber: ${eur(r.value)} (registado a ${fmtData(r.payment_date)})</span></div><button class="btn sm primary" data-pagar="${r.id}">Marcar como pago</button>` });
   }
+  for (const r of S.revend) {
+    const pp = S.comissoes.filter((c) => c.reseller_id === r.id && estadoCom(c) === 'porpagar');
+    if (!pp.length) continue;
+    const t = pp.reduce((x, c) => x + Number(c.commission || 0), 0);
+    acoes.push({ p: 6, o: -t, html: `<span class="emo">🤝</span><div class="txt"><b>${esc(r.name)}</b><br><span>${pp.length} comiss${pp.length === 1 ? 'ão' : 'ões'} por pagar · ${eur(t)}</span></div><button class="btn sm" data-ir-rv="${r.id}">Ver comissões</button>` });
+  }
   acoes.sort((a, b) => a.p - b.p || (a.o < b.o ? -1 : a.o > b.o ? 1 : 0));
   const MAX = 5;
   const vis = hojeTudo ? acoes : acoes.slice(0, MAX);
@@ -369,6 +387,15 @@ function renderHoje(naoPagos) {
       : '<p class="ok">✅ Nada urgente hoje.</p>');
   $('#hoje-mais')?.addEventListener('click', () => { hojeTudo = !hojeTudo; renderHoje(naoPagos); });
 }
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ir-rv]');
+  if (!b) return;
+  rvSel = b.dataset.irRv; rvMarcadas.clear();
+  $('.tab[data-tab="revendedores"]').click();
+  renderRevendedores();
+  setTimeout(() => $('#rv-detalhe').scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+});
 
 // ---------- Manter ligado (com prazo) / Desligar
 function abrirManter(s) {
@@ -491,6 +518,147 @@ function barrasH(el, itens, unidade) {
 
 let tRes;
 window.addEventListener('resize', () => { clearTimeout(tRes); tRes = setTimeout(() => { if (!$('#tab-financeiro').classList.contains('hidden')) renderFinanceiro(); }, 200); });
+
+// ---------------------------------------------------------------- revendedores e comissões
+let rvSel = null;               // revendedor aberto no detalhe
+const rvMarcadas = new Set();   // comissões selecionadas
+/** estado de uma comissão: paga · porpagar (cliente pagou) · aguarda (cliente ainda não pagou) */
+const estadoCom = (c) => (c.commission_paid ? 'pagas' : c.paid ? 'porpagar' : 'aguarda');
+
+function renderRevendedores() {
+  if (S.erroRevend) {
+    $('#rv-tabela').innerHTML = `<tr><td class="erro" style="white-space:normal">Não consegui ler os revendedores: ${esc(S.erroRevend)}. Confirma que correste <b>supabase/migrations/013_revendedores.sql</b>.</td></tr>`;
+    $('#rv-kpis').innerHTML = '';
+    return;
+  }
+  const ano = somaMeses(hojeISO(), -12);
+  const tot = (arr) => arr.reduce((t, c) => t + Number(c.commission || 0), 0);
+  const porPagar = S.comissoes.filter((c) => estadoCom(c) === 'porpagar');
+  const pagas12 = S.comissoes.filter((c) => c.commission_paid && (c.commission_paid_at || c.payment_date) >= ano);
+  const comRev = S.subs.filter((s) => s.reseller_id).length;
+  $('#rv-kpis').innerHTML = `
+    <div class="kpi bad"><div class="lbl">💸 Comissões por pagar</div><div class="val">${eur(tot(porPagar))}</div><div class="sub">${porPagar.length} comiss${porPagar.length === 1 ? 'ão' : 'ões'}</div></div>
+    <div class="kpi"><div class="lbl">✅ Pagas (12 meses)</div><div class="val">${eur(tot(pagas12))}</div><div class="sub">${pagas12.length} comiss${pagas12.length === 1 ? 'ão' : 'ões'}</div></div>
+    <div class="kpi"><div class="lbl">⏳ À espera do cliente</div><div class="val">${eur(tot(S.comissoes.filter((c) => estadoCom(c) === 'aguarda')))}</div><div class="sub">cliente ainda não pagou</div></div>
+    <div class="kpi"><div class="lbl">🤝 Revendedores</div><div class="val">${S.revend.filter((r) => r.active).length}</div><div class="sub">${comRev} subscritores com revendedor</div></div>`;
+
+  $('#rv-tabela').innerHTML = `<thead><tr><th>Revendedor</th><th>Contacto</th><th class="num">Subscritores</th><th class="num">Por pagar</th><th class="num">Pagas (12 meses)</th><th></th></tr></thead>
+    <tbody>${S.revend.map((r) => {
+      const c = S.comissoes.filter((x) => x.reseller_id === r.id);
+      const pp = c.filter((x) => estadoCom(x) === 'porpagar');
+      const pg = c.filter((x) => x.commission_paid && (x.commission_paid_at || x.payment_date) >= ano);
+      const nSubs = S.subs.filter((s) => s.reseller_id === r.id).length;
+      return `<tr class="${rvSel === r.id ? 'selecionado' : ''}">
+        <td>${avatar(r.name)}<b>${esc(r.name)}</b>${r.active ? '' : ' <span class="badge cancelado">inativo</span>'}</td>
+        <td>${esc(r.contact || '—')}</td>
+        <td class="num">${nSubs}</td>
+        <td class="num">${pp.length ? `<b style="color:var(--bad)">${eur(tot(pp))}</b> <span class="muted small">(${pp.length})</span>` : '—'}</td>
+        <td class="num">${pg.length ? `${eur(tot(pg))} <span class="muted small">(${pg.length})</span>` : '—'}</td>
+        <td><div class="acoes"><button class="btn sm${pp.length ? ' primary' : ''}" data-rv-ver="${r.id}">Comissões</button><button class="btn sm ghost" data-rv-editar="${r.id}">Editar</button></div></td></tr>`;
+    }).join('') || '<tr><td colspan="6" class="vazio">Ainda sem revendedores. Adiciona o primeiro em baixo.</td></tr>'}</tbody>`;
+  renderRvDetalhe();
+}
+
+function renderRvDetalhe() {
+  const det = $('#rv-detalhe');
+  const r = S.revend.find((x) => x.id === rvSel);
+  if (!r) { det.classList.add('hidden'); return; }
+  det.classList.remove('hidden');
+  const filtro = $('#rv-filtro').value;
+  const subPorId = new Map(S.subs.map((s) => [s.id, s]));
+  const lista = S.comissoes.filter((c) => c.reseller_id === r.id && (filtro === 'todas' || estadoCom(c) === filtro));
+  for (const id of [...rvMarcadas]) if (!lista.some((c) => c.id === id && estadoCom(c) === 'porpagar')) rvMarcadas.delete(id);
+  const totSel = lista.filter((c) => rvMarcadas.has(c.id)).reduce((t, c) => t + Number(c.commission || 0), 0);
+  $('#rv-det-titulo').innerHTML = `${avatar(r.name)}Comissões de ${esc(r.name)}${r.contact ? ` <span class="muted small">· ${esc(r.contact)}</span>` : ''}`;
+  $('#rv-pagar-sel').disabled = rvMarcadas.size === 0;
+  $('#rv-pagar-sel').textContent = rvMarcadas.size ? `Marcar ${rvMarcadas.size} como paga${rvMarcadas.size === 1 ? '' : 's'} (${eur(totSel)})` : 'Marcar selecionadas como pagas';
+  if (!$('#rv-data').value) $('#rv-data').value = hojeISO();
+  const podeSel = lista.filter((c) => estadoCom(c) === 'porpagar');
+  $('#rv-comissoes').innerHTML = `<thead><tr><th class="sel"><input type="checkbox" id="rv-sel-todas" ${podeSel.length && podeSel.every((c) => rvMarcadas.has(c.id)) ? 'checked' : ''} ${podeSel.length ? '' : 'disabled'}></th>
+      <th>Pagamento do cliente</th><th>Subscritor</th><th>Período</th><th class="num">Value</th><th class="num">Comissão</th><th>Estado</th><th></th></tr></thead>
+    <tbody>${lista.map((c) => {
+      const s = subPorId.get(c.subscriber_id);
+      const est = estadoCom(c);
+      return `<tr class="${rvMarcadas.has(c.id) ? 'selecionado' : ''}"${estiloType(s?.type)}>
+        <td class="sel">${est === 'porpagar' ? `<input type="checkbox" data-rv-sel="${c.id}" ${rvMarcadas.has(c.id) ? 'checked' : ''}>` : ''}</td>
+        <td data-label="Pagamento do cliente">${fmtData(c.payment_date)}</td>
+        <td class="c-id" data-label="Subscritor">${s ? `<span class="nome" data-editar="${s.id}">${chipType(s.type)} ${esc(s.code)}</span>${s.owner ? ' · ' + esc(s.owner) : ''}` : '—'}</td>
+        <td data-label="Período">${fmtData(c.period_start)} → ${fmtData(c.period_end)}</td>
+        <td class="num" data-label="Value">${eur(c.value)}</td>
+        <td class="num" data-label="Comissão"><b>${eur(c.commission)}</b></td>
+        <td data-label="Estado">${est === 'pagas' ? `<span class="badge ativo">Paga ${fmtData(c.commission_paid_at)}</span>` : est === 'porpagar' ? '<span class="badge desligado">Por pagar</span>' : '<span class="badge cancelado">Aguarda cliente</span>'}</td>
+        <td class="c-acoes"><div class="acoes">${est === 'pagas' ? `<button class="btn sm ghost" data-rv-desfazer="${c.id}">Marcar como não paga</button>` : est === 'porpagar' ? `<button class="btn sm" data-rv-pagar="${c.id}">Marcar paga</button>` : ''}</div></td></tr>`;
+    }).join('') || `<tr><td colspan="8" class="vazio">Sem comissões ${filtro === 'porpagar' ? 'por pagar 👌' : 'neste filtro'}.</td></tr>`}</tbody>`;
+}
+
+async function marcarComissoes(ids, paga) {
+  const data = $('#rv-data').value || hojeISO();
+  const { error } = await sb.from('renewals').update(paga ? { commission_paid: true, commission_paid_at: data } : { commission_paid: false, commission_paid_at: null }).in('id', ids);
+  if (error) return toast('Erro: ' + error.message, true);
+  ids.forEach((id) => rvMarcadas.delete(id));
+  toast(paga ? `${ids.length} comiss${ids.length === 1 ? 'ão marcada' : 'ões marcadas'} como paga${ids.length === 1 ? '' : 's'} (${fmtData(data)}).` : 'Comissão marcada como não paga.');
+  carregar();
+}
+
+$('#rv-tabela').addEventListener('click', (e) => {
+  const v = e.target.closest('[data-rv-ver]'), ed = e.target.closest('[data-rv-editar]');
+  if (v) { rvSel = rvSel === v.dataset.rvVer ? null : v.dataset.rvVer; rvMarcadas.clear(); renderRevendedores(); if (rvSel) $('#rv-detalhe').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  if (ed) abrirRevendedor(S.revend.find((r) => r.id === ed.dataset.rvEditar));
+});
+$('#rv-fechar').addEventListener('click', () => { rvSel = null; rvMarcadas.clear(); renderRevendedores(); });
+$('#rv-filtro').addEventListener('change', () => { rvMarcadas.clear(); renderRvDetalhe(); });
+$('#rv-comissoes').addEventListener('change', (e) => {
+  if (e.target.id === 'rv-sel-todas') {
+    const lista = S.comissoes.filter((c) => c.reseller_id === rvSel && estadoCom(c) === 'porpagar');
+    lista.forEach((c) => (e.target.checked ? rvMarcadas.add(c.id) : rvMarcadas.delete(c.id)));
+  }
+  const cb = e.target.closest('[data-rv-sel]');
+  if (cb) cb.checked ? rvMarcadas.add(cb.dataset.rvSel) : rvMarcadas.delete(cb.dataset.rvSel);
+  renderRvDetalhe();
+});
+$('#rv-comissoes').addEventListener('click', (e) => {
+  const p = e.target.closest('[data-rv-pagar]'), d = e.target.closest('[data-rv-desfazer]');
+  if (p) marcarComissoes([p.dataset.rvPagar], true);
+  if (d) marcarComissoes([d.dataset.rvDesfazer], false);
+});
+$('#rv-pagar-sel').addEventListener('click', () => { if (rvMarcadas.size) marcarComissoes([...rvMarcadas], true); });
+$('#rv-add').addEventListener('click', async () => {
+  const name = $('#rv-novo-nome').value.trim();
+  if (!name) return toast('Indica o nome do revendedor.', true);
+  const { error } = await sb.from('resellers').insert({ name, contact: $('#rv-novo-contacto').value.trim() || null });
+  if (error) return toast(error.code === '23505' ? `Já existe um revendedor "${name}".` : 'Erro: ' + error.message, true);
+  $('#rv-novo-nome').value = ''; $('#rv-novo-contacto').value = '';
+  toast(`Revendedor ${name} adicionado.`);
+  carregar();
+});
+function abrirRevendedor(r) {
+  if (!r) return;
+  const n = S.subs.filter((s) => s.reseller_id === r.id).length;
+  const corpo = abrirModal(`Revendedor — ${r.name}`, `
+    <form class="form" id="form-rv">
+      <label>Nome *<input name="name" required value="${esc(r.name)}"></label>
+      <label>Contacto<input name="contact" value="${esc(r.contact)}"></label>
+      <label class="full">Notas<textarea name="notes">${esc(r.notes)}</textarea></label>
+      <label class="check full"><input type="checkbox" name="active" ${r.active ? 'checked' : ''}> Ativo (aparece na escolha de revendedor dos subscritores)</label>
+    </form>
+    <div class="row"><button class="btn danger ghost" id="rv-apagar" type="button">Apagar</button><span class="spacer"></span><button class="btn" data-close type="button">Cancelar</button><button class="btn primary" id="rv-guardar" type="button">Guardar</button></div>`);
+  const form = $('#form-rv', corpo);
+  $('#rv-guardar', corpo).addEventListener('click', async () => {
+    if (!form.reportValidity()) return;
+    const f = new FormData(form);
+    const { error } = await sb.from('resellers').update({ name: f.get('name').trim(), contact: f.get('contact').trim() || null, notes: f.get('notes').trim() || null, active: !!f.get('active') }).eq('id', r.id);
+    if (error) return toast(error.code === '23505' ? 'Já existe um revendedor com esse nome.' : 'Erro: ' + error.message, true);
+    fecharModal(); toast('Revendedor atualizado.'); carregar();
+  });
+  $('#rv-apagar', corpo).addEventListener('click', async () => {
+    const ok = await confirmar('Apagar revendedor', `Apagar <b>${esc(r.name)}</b>? ${n ? `Os ${n} subscritores dele ficam sem revendedor e ` : ''}as comissões já registadas ficam sem revendedor associado.<br><span class="muted small">Se só deixou de trabalhar contigo, desmarca "Ativo" em vez de apagar.</span>`, 'Apagar');
+    if (!ok) return abrirRevendedor(r);
+    const { error } = await sb.from('resellers').delete().eq('id', r.id);
+    if (error) return toast('Erro: ' + error.message, true);
+    if (rvSel === r.id) rvSel = null;
+    toast('Revendedor apagado.'); carregar();
+  });
+}
 
 // ---------------------------------------------------------------- calendário de vencimentos
 let calMes = hojeISO().slice(0, 7), calDia = null;
@@ -635,12 +803,13 @@ function renderFinanceiro() {
 // ---------------------------------------------------------------- lista
 function filtrados() {
   const q = $('#f-pesquisa').value.trim().toLowerCase();
-  const est = $('#f-estado').value, ow = $('#f-owner').value, ty = $('#f-type').value, hw = $('#f-hw').value;
+  const est = $('#f-estado').value, ow = $('#f-owner').value, ty = $('#f-type').value, hw = $('#f-hw').value, rv = $('#f-reseller').value;
   const { campo, asc } = S.sort;
   const numericos = ['value', 'commission', 'days_left', 'net_year'];
   return S.subs
-    .filter((s) => (!est || s.status === est) && (!ow || s.owner === ow) && (!ty || s.type === ty) && (!hw || s.hw === hw))
-    .filter((s) => !q || [s.code, s.owner, s.type, s.hw, s.notes].some((v) => String(v ?? '').toLowerCase().includes(q)))
+    .filter((s) => (!est || s.status === est) && (!ow || s.owner === ow) && (!ty || s.type === ty) && (!hw || s.hw === hw)
+      && (!rv || (rv === '__sem' ? !s.reseller_id : s.reseller_id === rv)))
+    .filter((s) => !q || [s.code, s.owner, s.type, s.hw, s.notes, s.reseller_name].some((v) => String(v ?? '').toLowerCase().includes(q)))
     .sort((a, b) => {
       let x = a[campo], y = b[campo];
       if (numericos.includes(campo)) { x = x ?? -1e9; y = y ?? -1e9; return (Number(x) - Number(y)) * (asc ? 1 : -1); }
@@ -656,6 +825,7 @@ function renderLista() {
       <td class="sel"><input type="checkbox" data-sel="${s.id}" ${S.sel.has(s.id) ? 'checked' : ''}></td>
       <td class="c-id"><span class="nome" data-editar="${s.id}">${esc(s.code)}</span></td>
       <td class="c-owner" data-label="Owner">${s.owner ? avatar(s.owner) + esc(s.owner) : ''}</td>
+      <td data-label="Revendedor">${esc(s.reseller_name || '—')}</td>
       <td class="c-type" data-label="Type">${chipType(s.type)}</td>
       <td data-label="HW">${esc(s.hw || '')}</td>
       <td data-label="Avença">${PER[s.periodicity]}</td>
@@ -706,7 +876,7 @@ $('#btn-apagar-sel').addEventListener('click', async () => {
     async () => (await sb.from('subscribers').delete().in('id', ids)).error);
 });
 
-['#f-pesquisa', '#f-estado', '#f-owner', '#f-type', '#f-hw'].forEach((s) => $(s).addEventListener('input', renderLista));
+['#f-pesquisa', '#f-estado', '#f-owner', '#f-type', '#f-hw', '#f-reseller'].forEach((s) => $(s).addEventListener('input', renderLista));
 $$('.tabela th[data-sort]').forEach((th) => th.addEventListener('click', () => {
   const campo = th.dataset.sort;
   S.sort = { campo, asc: S.sort.campo === campo ? !S.sort.asc : true };
@@ -744,6 +914,7 @@ async function abrirSub(id, opc = {}) {
       <label>Owner<input name="owner" list="dl-owner" value="${esc(v.owner)}">${datalist('dl-owner', 'owner')}</label>
       <label>Type<input name="type" list="dl-type" value="${esc(v.type)}"><datalist id="dl-type">${[...new Set([...S.custos.map((c) => c.type), ...unicos('type')])].map((o) => `<option value="${esc(o)}">`).join('')}</datalist></label>
       <label>HW${campoHW(v.hw)}</label>
+      <label>Revendedor (recebe a comissão)<select name="reseller_id"><option value="">— nenhum —</option>${S.revend.filter((r) => r.active || r.id === v.reseller_id).map((r) => `<option value="${r.id}" ${r.id === v.reseller_id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label>
       <label>Avença<select name="periodicity">
         <option value="semestral" ${v.periodicity === 'semestral' ? 'selected' : ''}>Semestral</option>
         <option value="anual" ${v.periodicity === 'anual' ? 'selected' : ''}>Anual</option></select></label>
@@ -789,6 +960,7 @@ async function abrirSub(id, opc = {}) {
       last_payment_date: t('last_payment_date'),
       payment_due_date: t('payment_due_date'),
       notes: t('notes'),
+      reseller_id: f.get('reseller_id') || null,
       keep_active: !!f.get('keep_active'),
       keep_active_until: f.get('keep_active') ? t('keep_active_until') : null,
     };
@@ -893,7 +1065,7 @@ function abrirPagamento(s, r) {
   const maisAntigo = HIST.length ? HIST.reduce((a, x) => (x.period_start < a ? x.period_start : a), HIST[0].period_start) : null;
   const fimSug = maisAntigo || s.payment_due_date || hojeISO();
   const iniSug = somaMeses(fimSug, -mesesDe(s.periodicity));
-  const v = r ?? { payment_date: iniSug, period_start: iniSug, period_end: fimSug, value: s.value, commission: s.commission, paid: true, payment_method: '', notes: '' };
+  const v = r ?? { payment_date: iniSug, period_start: iniSug, period_end: fimSug, value: s.value, commission: s.commission, paid: true, payment_method: '', notes: '', reseller_id: s.reseller_id, commission_paid: false, commission_paid_at: null };
   const metodos = [...new Set([...S.metodos, ...(v.payment_method ? [v.payment_method] : [])])];
 
   const corpo = abrirModal(`${novo ? 'Adicionar pagamento' : 'Editar pagamento'} — ${titulo(s)}`, `
@@ -905,7 +1077,10 @@ function abrirPagamento(s, r) {
       <label>Fim do período *<input name="period_end" type="date" required value="${esc(v.period_end)}"></label>
       <label>Value<input name="value" type="number" step="0.01" min="0" value="${esc(v.value)}"></label>
       <label>Commission<input name="commission" type="number" step="0.01" min="0" value="${esc(v.commission)}"></label>
-      <label class="check full"><input type="checkbox" name="paid" ${v.paid ? 'checked' : ''}> Pago</label>
+      <label class="check full"><input type="checkbox" name="paid" ${v.paid ? 'checked' : ''}> Pago pelo cliente</label>
+      <label>Revendedor<select name="reseller_id"><option value="">— nenhum —</option>${S.revend.map((x) => `<option value="${x.id}" ${x.id === v.reseller_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+      <label>Comissão paga ao revendedor em<input name="commission_paid_at" type="date" value="${esc(v.commission_paid ? v.commission_paid_at || '' : '')}"></label>
+      <label class="check full"><input type="checkbox" name="commission_paid" ${v.commission_paid ? 'checked' : ''}> Comissão já paga ao revendedor</label>
       <label class="full">Notas<input name="notes" value="${esc(v.notes)}"></label>
       ${novo ? `<label class="check full"><input type="checkbox" name="atualizar_due"> Atualizar também o PaymentDueDate para o fim deste período</label>` : ''}
     </form>
@@ -931,6 +1106,9 @@ function abrirPagamento(s, r) {
       commission: Number(f.get('commission')) || 0,
       paid: !!f.get('paid'),
       payment_method: f.get('method') || null,
+      reseller_id: f.get('reseller_id') || null,
+      commission_paid: !!f.get('commission_paid'),
+      commission_paid_at: f.get('commission_paid') ? (f.get('commission_paid_at') || hojeISO()) : null,
       notes: (f.get('notes') || '').trim() || null,
     };
     e.target.disabled = true;
@@ -980,7 +1158,8 @@ function abrirRenovar(id) {
     const novo = form.start.value ? somaMeses(form.start.value, meses()) : null;
     const dur = form.meses.value ? `Reforço de <b>${meses()} ${meses() === 1 ? 'mês' : 'meses'}</b>` : `Avença <b>${PER[s.periodicity].toLowerCase()}</b>`;
     $('#renov-info', corpo).innerHTML = `${dur}. Payment Due: <b>${s.payment_due_date ? fmtData(s.payment_due_date) : 'sem data'}</b> → <b>${novo ? fmtData(novo) : '—'}</b>` +
-      (parado ? `<br><span class="muted small">Está ${s.status}, por isso o novo período começa na data do pagamento.</span>` : '');
+      (parado ? `<br><span class="muted small">Está ${s.status}, por isso o novo período começa na data do pagamento.</span>` : '') +
+      (s.reseller_name ? `<br><span class="muted small">🤝 A comissão fica a dever a <b>${esc(s.reseller_name)}</b>.</span>` : '');
     return novo;
   };
   form.start.addEventListener('change', () => { startManual = true; atualizar(); });
@@ -1051,6 +1230,7 @@ const CAMPOS = [
   { k: 'value', rot: 'Value', sin: ['value', 'valor', 'valor semestre', 'amount', 'preco'] },
   { k: 'commission', rot: 'Commission', sin: ['comission', 'commission', 'comissao'] },
   { k: 'owner', rot: 'Owner', sin: ['owner', 'dono', 'cliente', 'nome', 'responsavel'] },
+  { k: 'reseller', rot: 'Revendedor', sin: ['reseller', 'revendedor', 'revenda', 'parceiro', 'agente'] },
   { k: 'type', rot: 'Type', sin: ['type', 'tipo', 'categoria'] },
   { k: 'hw', rot: 'HW', sin: ['hw', 'hardware', 'equipamento'] },
   { k: 'periodicity', rot: 'Periodicidade', sin: ['periodicity', 'periodicidade', 'avenca', 'periodo', 'frequencia'] },
@@ -1061,13 +1241,13 @@ const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toL
 let IMP = { cab: [], linhas: [] };
 
 // ---------- modelo / exemplo ----------
-const MODELO_CAB = ['ID', 'PaymentDueDate', 'LastPaymentDate', 'Value', 'Comission', 'Owner', 'Type', 'HW', 'Periodicity', 'Notes'];
+const MODELO_CAB = ['ID', 'PaymentDueDate', 'LastPaymentDate', 'Value', 'Comission', 'Owner', 'Reseller', 'Type', 'HW', 'Periodicity', 'Notes'];
 function modeloLinhas() {
   const h = hojeISO();
   const ultimo1 = somaMeses(h, -2), ultimo2 = somaMeses(h, -5);
   return [
-    ['EXEMPLO-1', proximoVenc(ultimo1, 'semestral'), ultimo1, 120, 12, 'Ana Silva', 'C', HW_OPCOES[0] || 'Router X1', 'semestral', ''],
-    ['EXEMPLO-2', proximoVenc(ultimo2, 'anual'), ultimo2, 300, 30, 'Rui Costa', 'P', HW_OPCOES[1] || HW_OPCOES[0] || 'Box X2', 'anual', 'Paga por transferência'],
+    ['EXEMPLO-1', proximoVenc(ultimo1, 'semestral'), ultimo1, 120, 12, 'Ana Silva', 'Zé Revenda', 'C', HW_OPCOES[0] || 'Router X1', 'semestral', ''],
+    ['EXEMPLO-2', proximoVenc(ultimo2, 'anual'), ultimo2, 300, 30, 'Rui Costa', '', 'P', HW_OPCOES[1] || HW_OPCOES[0] || 'Box X2', 'anual', 'Paga por transferência'],
   ];
 }
 const XLSX_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
@@ -1081,7 +1261,7 @@ $('#btn-modelo').addEventListener('click', async () => {
     const toDate = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
     const dados = [MODELO_CAB, ...modeloLinhas().map((l) => l.map((v, i) => (i === 1 || i === 2) ? toDate(v) : v))];
     const ws = XLSX.utils.aoa_to_sheet(dados, { cellDates: true, dateNF: 'dd/mm/yyyy' });
-    ws['!cols'] = [10, 16, 16, 10, 12, 18, 10, 16, 12, 28].map((w) => ({ wch: w }));
+    ws['!cols'] = [10, 16, 16, 10, 12, 18, 16, 10, 16, 12, 28].map((w) => ({ wch: w }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Subscritores');
     XLSX.writeFile(wb, 'modelo-subscritores.xlsx');
@@ -1181,6 +1361,7 @@ function converter() {
       value: lerValor(get(l, 'value')),
       commission: lerValor(get(l, 'commission')),
       owner: txt(l, 'owner'),
+      _reseller: txt(l, 'reseller'),
       type: txt(l, 'type'),
       hw: txt(l, 'hw'),
       periodicity,
@@ -1192,7 +1373,7 @@ function converter() {
 
 function previsualizar() {
   const { ok, erros } = converter();
-  const cols = [['ID', 'code'], ['PaymentDue', 'payment_due_date'], ['LastPayment', 'last_payment_date'], ['Value', 'value'], ['Commission', 'commission'], ['Owner', 'owner'], ['Type', 'type'], ['HW', 'hw'], ['Avença', 'periodicity']];
+  const cols = [['ID', 'code'], ['PaymentDue', 'payment_due_date'], ['LastPayment', 'last_payment_date'], ['Value', 'value'], ['Commission', 'commission'], ['Owner', 'owner'], ['Reseller', 'reseller_name'], ['Type', 'type'], ['HW', 'hw'], ['Avença', 'periodicity']];
   const fmt = (r, k) => (k === 'value' || k === 'commission') ? eur(r[k]) : k.endsWith('_date') ? fmtData(r[k]) : r[k] ?? '';
   $('#preview').innerHTML = `<thead><tr>${cols.map(([h]) => `<th>${h}</th>`).join('')}</tr></thead>
     <tbody>${ok.slice(0, 8).map((r) => `<tr>${cols.map(([, k]) => `<td>${esc(fmt(r, k))}</td>`).join('')}</tr>`).join('')}</tbody>`;
@@ -1207,7 +1388,17 @@ $('#btn-importar').addEventListener('click', async (e) => {
   if (!ok.length) return;
   if (!(await confirmar('Importar', `Importar <b>${ok.length}</b> subscritor(es)? Os que já existem (mesmo ID) são atualizados com os dados da folha.`, 'Importar'))) return;
   e.target.disabled = true;
-  const linhas = ok;
+  // Revendedores: associa pelo nome e cria os que ainda não existem
+  const nomes = [...new Set(ok.map((r) => r._reseller).filter(Boolean))];
+  const porNome = new Map(S.revend.map((r) => [r.name.toLowerCase(), r.id]));
+  const novos = nomes.filter((n) => !porNome.has(n.toLowerCase()));
+  if (novos.length) {
+    const { data: criados, error: eR } = await sb.from('resellers').insert(novos.map((name) => ({ name }))).select('id,name');
+    if (eR) { e.target.disabled = false; return toast('Erro a criar revendedores: ' + eR.message, true); }
+    criados.forEach((r) => porNome.set(r.name.toLowerCase(), r.id));
+  }
+  const temColRev = Number($('#mapa-campos select[data-campo="reseller"]').value) >= 0;
+  const linhas = ok.map(({ _reseller, ...r }) => (temColRev ? { ...r, reseller_id: _reseller ? porNome.get(_reseller.toLowerCase()) : null } : r));
   for (let i = 0; i < linhas.length; i += 200) {
     const { error } = await sb.from('subscribers').upsert(linhas.slice(i, i + 200), { onConflict: 'code' });
     if (error) { e.target.disabled = false; return toast(`Erro a importar (a partir do nº ${i + 1}): ${error.message}`, true); }
@@ -1355,10 +1546,12 @@ const CAMPO = {
   code: 'ID', payment_due_date: 'PaymentDueDate', last_payment_date: 'LastPaymentDate', value: 'Value', commission: 'Commission',
   owner: 'Owner', type: 'Type', hw: 'HW', periodicity: 'Avença', active: 'Ativo', keep_active: 'Manter ligado', keep_active_until: 'Manter ligado até',
   notes: 'Notas', last_notified_at: 'Aviso copiado em', monthly_cost: 'Custo mensal',
+  reseller_id: 'Revendedor', commission_paid: 'Comissão paga', commission_paid_at: 'Comissão paga em', reseller: 'Revendedor',
   payment_date: 'Data do pagamento', period_start: 'Início do período', period_end: 'Fim do período', paid: 'Pago', payment_method: 'Método',
 };
 function valorAud(k, v) {
   if (v === null || v === undefined || v === '') return '—';
+  if (k === 'reseller_id') return nomeRev(v) || '(revendedor apagado)';
   if (typeof v === 'boolean') return v ? 'sim' : 'não';
   if (typeof v === 'number' || ['value', 'commission', 'monthly_cost'].includes(k)) return eur(v);
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return fmtData(v);
@@ -1381,12 +1574,12 @@ function detalhesAud(r) {
     case 'apagar_pag':
     case 'pagamento':
     case 'renovar':
-      return `Pagamento a <b>${fmtData(d.payment_date)}</b> · período ${fmtData(d.period_start)} → <b>${fmtData(d.period_end)}</b> · Value <b>${eur(d.value)}</b> · Commission ${eur(d.commission)} · ${d.payment_method ? 'método <b>' + esc(d.payment_method) + '</b> · ' : ''}${d.paid ? 'pago' : '<b>não pago</b>'}${d.notes ? ' · ' + esc(d.notes) : ''}`;
+      return `Pagamento a <b>${fmtData(d.payment_date)}</b> · período ${fmtData(d.period_start)} → <b>${fmtData(d.period_end)}</b> · Value <b>${eur(d.value)}</b> · Commission ${eur(d.commission)} · ${d.payment_method ? 'método <b>' + esc(d.payment_method) + '</b> · ' : ''}${d.paid ? 'pago' : '<b>não pago</b>'}${d.reseller ? ` · revendedor <b>${esc(d.reseller)}</b>${d.commission_paid ? ' (comissão paga)' : ''}` : ''}${d.notes ? ' · ' + esc(d.notes) : ''}`;
     case 'aviso': return 'Mensagem de aviso copiada para o WhatsApp';
     case 'ligar': return `Mantido ligado com o pagamento em atraso${d.keep_active_until?.[1] ? ` até <b>${fmtData(d.keep_active_until[1])}</b>` : ' (sem prazo)'}`;
     case 'desligar': return 'Passou a desligado';
     case 'config': {
-      const alvo = r.entity === 'type_cost' ? `Custo do Type <b>${esc(r.record_id)}</b>` : r.entity === 'payment_method' ? `Método de pagamento <b>${esc(r.record_id)}</b>` : `Definição <b>${r.record_id === 'whatsapp_template' ? 'mensagem de WhatsApp' : esc(r.record_id)}</b>`;
+      const alvo = r.entity === 'type_cost' ? `Custo do Type <b>${esc(r.record_id)}</b>` : r.entity === 'payment_method' ? `Método de pagamento <b>${esc(r.record_id)}</b>` : r.entity === 'reseller' ? `Revendedor <b>${esc(r.record_id)}</b>` : `Definição <b>${r.record_id === 'whatsapp_template' ? 'mensagem de WhatsApp' : esc(r.record_id)}</b>`;
       if (d.op === 'criar') return `${alvo} criado(a): ${lista(d.novo || {})}`;
       if (d.op === 'apagar') return `${alvo} apagado(a)`;
       return `${alvo}<br>${difs(d['alterações'] || {})}`;

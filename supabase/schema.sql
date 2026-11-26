@@ -170,6 +170,47 @@ revoke all on public.app_settings from anon;
 grant select, insert, update, delete on public.app_settings to authenticated;
 grant select on public.app_settings to service_role;
 
+-- ---------- Revendedores (recebem as comissões) ----------
+create table if not exists public.resellers (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null unique,
+  contact     text,
+  notes       text,
+  active      boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+alter table public.resellers enable row level security;
+drop policy if exists "resellers: admins" on public.resellers;
+create policy "resellers: admins" on public.resellers
+  for all to authenticated
+  using ((select public.is_admin()))
+  with check ((select public.is_admin()));
+revoke all on public.resellers from anon;
+grant select, insert, update, delete on public.resellers to authenticated;
+grant select on public.resellers to service_role;
+
+alter table public.subscribers add column if not exists reseller_id uuid references public.resellers(id) on delete set null;
+alter table public.renewals    add column if not exists reseller_id uuid references public.resellers(id) on delete set null;
+alter table public.renewals    add column if not exists commission_paid boolean not null default false;
+alter table public.renewals    add column if not exists commission_paid_at date;
+create index if not exists renewals_reseller_idx on public.renewals (reseller_id, commission_paid);
+
+-- O pagamento fica com o revendedor que o subscritor tinha nesse momento
+create or replace function public.renewal_set_reseller()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.reseller_id is null then
+    select reseller_id into new.reseller_id from public.subscribers where id = new.subscriber_id;
+  end if;
+  if not new.commission_paid then new.commission_paid_at := null;
+  elsif new.commission_paid_at is null then new.commission_paid_at := current_date;
+  end if;
+  return new;
+end $$;
+drop trigger if exists renewal_set_reseller on public.renewals;
+create trigger renewal_set_reseller before insert or update on public.renewals
+  for each row execute function public.renewal_set_reseller();
+
 -- ---------- Vista com estado e lucro calculados ----------
 -- security_invoker = true → a vista respeita o RLS de quem consulta
 -- Estados: cancelado (manual) · arquivado (sem PaymentDueDate)
@@ -199,9 +240,11 @@ select
   coalesce(tc.monthly_cost, 0) * 12                                             as cost_year,
   (case s.periodicity when 'semestral' then (s.value - s.commission) * 2 else s.value - s.commission end)
     - coalesce(tc.monthly_cost, 0) * 12                                         as net_year,
-  (tc.type is null)                                                             as type_sem_custo
+  (tc.type is null)                                                             as type_sem_custo,
+  rv.name                                                                       as reseller_name
 from public.subscribers s
-left join public.type_costs tc on tc.type = s.type;
+left join public.type_costs tc on tc.type = s.type
+left join public.resellers rv on rv.id = s.reseller_id;
 
 revoke all on public.subscribers_status from anon;
 grant select on public.subscribers_status to authenticated, service_role;
@@ -429,7 +472,9 @@ begin
       'renewal', new.id::text, c,
       jsonb_build_object('payment_date', new.payment_date, 'period_start', new.period_start, 'period_end', new.period_end,
                          'value', new.value, 'commission', new.commission, 'paid', new.paid,
-                         'payment_method', new.payment_method, 'notes', new.notes));
+                         'payment_method', new.payment_method, 'notes', new.notes,
+                         'reseller', (select name from public.resellers where id = new.reseller_id),
+                         'commission_paid', new.commission_paid));
   end if;
   return r;
 end $$;
@@ -445,10 +490,10 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare ent text := case tg_table_name when 'type_costs' then 'type_cost' when 'payment_methods' then 'payment_method' else 'setting' end;
+declare ent text := case tg_table_name when 'type_costs' then 'type_cost' when 'payment_methods' then 'payment_method' when 'resellers' then 'reseller' else 'setting' end;
         rid text;
 begin
-  rid := coalesce(to_jsonb(new), to_jsonb(old)) ->> case tg_table_name when 'type_costs' then 'type' when 'payment_methods' then 'name' else 'key' end;
+  rid := coalesce(to_jsonb(new), to_jsonb(old)) ->> case tg_table_name when 'type_costs' then 'type' when 'payment_methods' then 'name' when 'resellers' then 'name' else 'key' end;
   if tg_op = 'UPDATE' and public.audit_diff(to_jsonb(old), to_jsonb(new)) = '{}'::jsonb then return new; end if;
   perform public.audit_write('config', ent, rid, null,
     case tg_op
@@ -463,6 +508,9 @@ create trigger audit_type_costs after insert or update or delete on public.type_
   for each row execute function public.audit_config();
 drop trigger if exists audit_payment_methods on public.payment_methods;
 create trigger audit_payment_methods after insert or update or delete on public.payment_methods
+  for each row execute function public.audit_config();
+drop trigger if exists audit_resellers on public.resellers;
+create trigger audit_resellers after insert or update or delete on public.resellers
   for each row execute function public.audit_config();
 drop trigger if exists audit_app_settings on public.app_settings;
 create trigger audit_app_settings after insert or update or delete on public.app_settings
