@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS } from './config.js?v=202611261617';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS } from './config.js?v=202611261628';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -807,7 +807,7 @@ function filtrados() {
   const { campo, asc } = S.sort;
   const numericos = ['value', 'commission', 'days_left', 'net_year'];
   return S.subs
-    .filter((s) => (!est || s.status === est) && (!ow || s.owner === ow) && (!ty || s.type === ty) && (!hw || s.hw === hw)
+    .filter((s) => (!est || (est === '__correntes' ? s.status !== 'cancelado' && s.status !== 'arquivado' : s.status === est)) && (!ow || s.owner === ow) && (!ty || s.type === ty) && (!hw || s.hw === hw)
       && (!rv || (rv === '__sem' ? !s.reseller_id : s.reseller_id === rv)))
     .filter((s) => !q || [s.code, s.owner, s.type, s.hw, s.notes, s.reseller_name].some((v) => String(v ?? '').toLowerCase().includes(q)))
     .sort((a, b) => {
