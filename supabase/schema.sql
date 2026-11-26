@@ -109,10 +109,11 @@ grant select on public.subscribers, public.renewals to service_role;
 create table if not exists public.type_costs (
   type          text primary key,               -- valor do campo "Type" dos subscritores (ex.: C, P)
   monthly_cost  numeric(10,2) not null default 0 check (monthly_cost >= 0),
+  color         text,                           -- cor do Type na app (ex.: #2563eb)
   updated_at    timestamptz not null default now()
 );
 
-insert into public.type_costs (type, monthly_cost) values ('C', 2.20), ('P', 1.50)
+insert into public.type_costs (type, monthly_cost, color) values ('C', 2.20, '#2563eb'), ('P', 1.50, '#ea580c')
 on conflict (type) do nothing;
 
 alter table public.type_costs enable row level security;

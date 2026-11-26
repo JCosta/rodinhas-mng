@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261416';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261422';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -65,6 +65,11 @@ function toast(msg, erro = false) {
 }
 
 const unicos = (campo) => [...new Set(S.subs.map((s) => s[campo]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt'));
+
+// Cor por Type (definida em Configuração / tabela type_costs)
+const corType = (t) => (t && S.custos.find((c) => c.type === t)?.color) || null;
+const estiloType = (t) => { const c = corType(t); return c && /^#[0-9a-f]{3,8}$/i.test(c) ? ` style="--tc:${c}"` : ''; };
+const chipType = (t) => (t ? `<span class="tchip"${estiloType(t)}>${esc(t)}</span>` : '');
 
 // ---------------------------------------------------------------- modal
 function abrirModal(tit, html) {
@@ -185,8 +190,8 @@ function renderPainel() {
     <div class="kpi off"><div class="lbl">Arquivados</div><div class="val">${arquivados.length}</div><div class="sub">sem data</div></div>`;
 
   $('#aviso-dias').textContent = `próximos ${DIAS_AVISO} dias`;
-  const item = (s, extra = '') => `<div class="item">
-      <div class="who"><b data-editar="${s.id}">${esc(titulo(s))}</b><span>${[s.type, s.hw, PER[s.periodicity]].filter(Boolean).map(esc).join(' · ')} · ${s.payment_due_date ? (s.days_left < 0 ? 'venceu ' : 'vence ') + fmtData(s.payment_due_date) : 'sem data de pagamento'}</span></div>
+  const item = (s, extra = '') => `<div class="item"${estiloType(s.type)}>
+      <div class="who"><b data-editar="${s.id}">${chipType(s.type)} ${esc(titulo(s))}</b><span>${[s.hw, PER[s.periodicity]].filter(Boolean).map(esc).join(' · ')} · ${s.payment_due_date ? (s.days_left < 0 ? 'venceu ' : 'vence ') + fmtData(s.payment_due_date) : 'sem data de pagamento'}</span></div>
       <div class="dias">${textoDias(s)}</div>${extra}
       <button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button></div>`;
   const bManter = (s) => `<button class="btn sm ghost" data-manter="${s.id}" title="Continua com serviço apesar do pagamento em atraso">Manter ligado</button>`;
@@ -235,7 +240,7 @@ function renderFinanceiro() {
   });
   const tot = linhasT.reduce((a, x) => ({ n: a.n + x.n, r: a.r + x.r, c: a.c + x.c, k: a.k + x.k, l: a.l + x.l }), { n: 0, r: 0, c: 0, k: 0, l: 0 });
   $('#fin-types').innerHTML = `<thead><tr><th>Type</th><th class="num">Subscritores</th><th class="num">Custo unitário/mês</th><th class="num">Receita/mês</th><th class="num">Comissões/mês</th><th class="num">Custos/mês</th><th class="num">Lucro líquido/mês</th></tr></thead>
-    <tbody>${linhasT.map((x) => `<tr><td><b>${esc(x.t)}</b>${x.sem ? ' <span title="Type sem custo definido em Configuração">⚠</span>' : ''}</td><td class="num">${x.n}</td><td class="num">${eur(x.unit)}</td>
+    <tbody>${linhasT.map((x) => `<tr${estiloType(x.t)}><td>${x.t === '—' ? '<b>—</b>' : chipType(x.t)}${x.sem ? ' <span title="Type sem custo definido em Configuração">⚠</span>' : ''}</td><td class="num">${x.n}</td><td class="num">${eur(x.unit)}</td>
       <td class="num">${eur(x.r)}</td><td class="num">${eur(x.c)}</td><td class="num">${eur(x.k)}</td><td class="num ${x.l < 0 ? 'neg' : ''}">${eur(x.l)}</td></tr>`).join('') || '<tr><td colspan="7" class="vazio">Sem subscritores ligados.</td></tr>'}</tbody>
     <tfoot><tr><td>Total</td><td class="num">${tot.n}</td><td></td><td class="num">${eur(tot.r)}</td><td class="num">${eur(tot.c)}</td><td class="num">${eur(tot.k)}</td><td class="num ${tot.l < 0 ? 'neg' : ''}">${eur(tot.l)}</td></tr></tfoot>`;
 
@@ -324,11 +329,11 @@ function renderLista() {
   const lista = filtrados();
   // limpa seleções de subscritores que já não existem
   for (const id of [...S.sel]) if (!S.subs.some((s) => s.id === id)) S.sel.delete(id);
-  $('#tbody-clientes').innerHTML = lista.map((s) => `<tr class="${S.sel.has(s.id) ? 'selecionado' : ''}">
+  $('#tbody-clientes').innerHTML = lista.map((s) => `<tr class="${S.sel.has(s.id) ? 'selecionado' : ''}"${estiloType(s.type)}>
       <td class="sel"><input type="checkbox" data-sel="${s.id}" ${S.sel.has(s.id) ? 'checked' : ''}></td>
       <td><span class="nome" data-editar="${s.id}">${esc(s.code)}</span></td>
       <td>${esc(s.owner || '')}</td>
-      <td>${esc(s.type || '')}</td>
+      <td>${chipType(s.type)}</td>
       <td>${esc(s.hw || '')}</td>
       <td>${PER[s.periodicity]}</td>
       <td class="num">${eur(s.value)}</td>
@@ -787,8 +792,8 @@ function renderConfig() {
     $('#aviso-tipos').innerHTML = '';
     return;
   }
-  $('#tabela-custos tbody').innerHTML = S.custos.map((c) => `<tr>
-      <td><b>${esc(c.type)}</b></td>
+  $('#tabela-custos tbody').innerHTML = S.custos.map((c) => `<tr${estiloType(c.type)}>
+      <td>${chipType(c.type)} <input type="color" value="${esc(c.color && /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#888888')}" data-cor="${esc(c.type)}" title="Cor do Type ${esc(c.type)}" style="vertical-align:middle;margin-left:6px"></td>
       <td class="num"><input type="number" step="0.01" min="0" value="${esc(c.monthly_cost)}" data-custo="${esc(c.type)}" style="max-width:110px;text-align:right"></td>
       <td class="num">${cont(c.type)}</td>
       <td><div class="acoes"><button class="btn sm" data-guardar-custo="${esc(c.type)}">Guardar</button><button class="btn sm ghost danger" data-apagar-custo="${esc(c.type)}">Apagar</button></div></td>
@@ -806,9 +811,10 @@ $('#tabela-custos').addEventListener('click', async (e) => {
     const type = g.dataset.guardarCusto;
     const v = Number($(`[data-custo="${CSS.escape(type)}"]`).value);
     if (!(v >= 0)) return toast('Valor inválido.', true);
-    const { error } = await sb.from('type_costs').update({ monthly_cost: v, updated_at: new Date().toISOString() }).eq('type', type);
+    const cor = $(`[data-cor="${CSS.escape(type)}"]`).value;
+    const { error } = await sb.from('type_costs').update({ monthly_cost: v, color: cor, updated_at: new Date().toISOString() }).eq('type', type);
     if (error) return toast('Erro ao guardar: ' + error.message, true);
-    toast(`Custo de ${type} atualizado.`);
+    toast(`Type ${type} atualizado.`);
     carregar();
   } else if (d) {
     const type = d.dataset.apagarCusto;
@@ -823,7 +829,7 @@ $('#btn-add-custo').addEventListener('click', async () => {
   const type = $('#novo-type').value.trim();
   const v = Number($('#novo-custo').value);
   if (!type || !($('#novo-custo').value !== '' && v >= 0)) return toast('Indica o Type e o custo mensal.', true);
-  const { error } = await sb.from('type_costs').insert({ type, monthly_cost: v });
+  const { error } = await sb.from('type_costs').insert({ type, monthly_cost: v, color: $('#novo-cor').value });
   if (error) return toast(error.code === '23505' ? `O Type ${type} já existe.` : 'Erro: ' + error.message, true);
   $('#novo-type').value = ''; $('#novo-custo').value = '';
   toast(`Custo de ${type} adicionado.`);

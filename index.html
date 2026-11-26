@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Gestão de Avenças</title>
-  <link rel="stylesheet" href="styles.css?v=202611261416">
+  <link rel="stylesheet" href="styles.css?v=202611261422">
 </head>
 <body>
   <!-- Login -->
@@ -165,15 +165,16 @@
       <!-- Configuração -->
       <section id="tab-config" class="tab-panel hidden">
         <div class="card" style="max-width:640px">
-          <h2>Custos mensais por Type</h2>
+          <h2>Types: custo mensal e cor</h2>
           <p class="muted">Custo mensal de cada subscritor, conforme o Type. Entra no cálculo do lucro: <b>Value − Commission − custo mensal × meses</b>.</p>
           <table class="tabela" id="tabela-custos">
-            <thead><tr><th>Type</th><th class="num">Custo mensal</th><th class="num">Subscritores</th><th></th></tr></thead>
+            <thead><tr><th>Type e cor</th><th class="num">Custo mensal</th><th class="num">Subscritores</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
           <div class="row">
             <input id="novo-type" placeholder="Novo Type" style="max-width:140px">
             <input id="novo-custo" type="number" step="0.01" min="0" placeholder="custo / mês" style="max-width:120px">
+            <input id="novo-cor" type="color" value="#16a34a" title="Cor do novo Type">
             <button id="btn-add-custo" class="btn">Adicionar</button>
           </div>
           <p id="aviso-tipos" class="muted small"></p>
@@ -239,6 +240,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="app.js?v=202611261416"></script>
+  <script type="module" src="app.js?v=202611261422"></script>
 </body>
 </html>
