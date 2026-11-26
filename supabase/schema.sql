@@ -97,6 +97,11 @@ create policy "renewals: admins" on public.renewals
 
 revoke all on public.subscribers, public.renewals from anon;
 
+-- Permissões explícitas (projetos Supabase recentes não as dão por defeito).
+-- O acesso efetivo continua limitado aos admins pelas políticas RLS acima.
+grant select, insert, update, delete on public.subscribers, public.renewals to authenticated;
+grant select on public.subscribers, public.renewals to service_role;
+
 -- ---------- Vista com estado calculado ----------
 -- security_invoker = true → a vista respeita o RLS de quem consulta
 create or replace view public.subscribers_status
@@ -115,7 +120,7 @@ select
 from public.subscribers s;
 
 revoke all on public.subscribers_status from anon;
-grant select on public.subscribers_status to authenticated;
+grant select on public.subscribers_status to authenticated, service_role;
 
 -- ---------- Renovar: regista o pagamento e avança o PaymentDueDate ----------
 -- O próximo vencimento = vencimento atual + 6 meses (semestral) ou + 1 ano (anual), mantendo o ciclo.
