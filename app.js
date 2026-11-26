@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261309';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261321';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -8,6 +8,7 @@ const S = {
   subs: [],
   custos: [],
   waTemplate: '',
+  sel: new Set(),   // ids selecionados na lista
   sort: { campo: 'payment_due_date', asc: true },
 };
 
@@ -225,7 +226,10 @@ function filtrados() {
 
 function renderLista() {
   const lista = filtrados();
-  $('#tbody-clientes').innerHTML = lista.map((s) => `<tr>
+  // limpa seleções de subscritores que já não existem
+  for (const id of [...S.sel]) if (!S.subs.some((s) => s.id === id)) S.sel.delete(id);
+  $('#tbody-clientes').innerHTML = lista.map((s) => `<tr class="${S.sel.has(s.id) ? 'selecionado' : ''}">
+      <td class="sel"><input type="checkbox" data-sel="${s.id}" ${S.sel.has(s.id) ? 'checked' : ''}></td>
       <td><span class="nome" data-editar="${s.id}">${esc(s.code)}</span></td>
       <td>${esc(s.owner || '')}</td>
       <td>${esc(s.type || '')}</td>
@@ -241,11 +245,43 @@ function renderLista() {
       <td><div class="acoes">${s.status === 'a_terminar' ? botaoWA(s) : ''}<button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button><button class="btn sm ghost" data-editar="${s.id}">Editar</button></div></td>
     </tr>`).join('');
   $('#vazio-clientes').classList.toggle('hidden', lista.length > 0);
+  const visSel = lista.filter((s) => S.sel.has(s.id)).length;
+  $('#sel-todos').checked = lista.length > 0 && visSel === lista.length;
+  $('#sel-todos').indeterminate = visSel > 0 && visSel < lista.length;
+  $('#btn-apagar-sel').classList.toggle('hidden', S.sel.size === 0);
+  $('#btn-apagar-sel').textContent = `Apagar selecionados (${S.sel.size})`;
   $$('.tabela th[data-sort]').forEach((th) => {
     th.classList.toggle('sorted', th.dataset.sort === S.sort.campo);
     th.classList.toggle('asc', th.dataset.sort === S.sort.campo && S.sort.asc);
   });
 }
+
+$('#tbody-clientes').addEventListener('change', (e) => {
+  const cb = e.target.closest('[data-sel]');
+  if (!cb) return;
+  cb.checked ? S.sel.add(cb.dataset.sel) : S.sel.delete(cb.dataset.sel);
+  renderLista();
+});
+$('#sel-todos').addEventListener('change', (e) => {
+  const lista = filtrados();
+  for (const s of lista) e.target.checked ? S.sel.add(s.id) : S.sel.delete(s.id);
+  renderLista();
+});
+$('#btn-apagar-sel').addEventListener('click', async () => {
+  const alvo = S.subs.filter((s) => S.sel.has(s.id));
+  if (!alvo.length) return;
+  const nomes = alvo.slice(0, 10).map((s) => `<b>${esc(s.code)}</b>`).join(', ') + (alvo.length > 10 ? ` e mais ${alvo.length - 10}` : '');
+  const ok = await confirmar('Apagar subscritores',
+    `Apagar <b>${alvo.length}</b> subscritor(es) e todo o histórico de pagamentos? ${nomes}.<br>Esta ação não pode ser desfeita.<br>
+     <span class="muted small">Se só quiseres tirá-los dos ativos, apaga o PaymentDueDate (ficam arquivados) ou marca-os como cancelados.</span>`, 'Apagar');
+  if (!ok) return;
+  const ids = alvo.map((s) => s.id);
+  const { error } = await sb.from('subscribers').delete().in('id', ids);
+  if (error) return toast('Erro ao apagar: ' + error.message, true);
+  S.sel.clear();
+  toast(`${ids.length} subscritor(es) apagado(s).`);
+  carregar();
+});
 
 ['#f-pesquisa', '#f-estado', '#f-owner', '#f-type', '#f-hw'].forEach((s) => $(s).addEventListener('input', renderLista));
 $$('.tabela th[data-sort]').forEach((th) => th.addEventListener('click', () => {
@@ -695,7 +731,7 @@ function mensagemWA(s, tpl = S.waTemplate) {
 }
 function botaoWA(s) {
   const notif = s.last_notified_at ? `<span class="notif" title="Mensagem copiada a ${fmtData(s.last_notified_at)}">✓ ${fmtData(s.last_notified_at).slice(0, 5)}</span>` : '';
-  return `${notif}<button class="btn sm wa" data-wa="${s.id}" title="Copiar a mensagem de aviso para colar no WhatsApp">Copiar mensagem</button>`;
+  return `${notif}<button class="btn sm wa" data-wa="${s.id}" title="Copiar a mensagem de aviso para colar no WhatsApp">Copiar msg</button>`;
 }
 async function marcarAvisado(s) {
   if (s.last_notified_at === hojeISO()) return;

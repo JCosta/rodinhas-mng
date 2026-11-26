@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Gestão de Avenças</title>
-  <link rel="stylesheet" href="styles.css?v=202611261309">
+  <link rel="stylesheet" href="styles.css?v=202611261321">
 </head>
 <body>
   <!-- Login -->
@@ -73,12 +73,14 @@
           <select id="f-type"><option value="">Todos os types</option></select>
           <select id="f-hw"><option value="">Todos os HW</option></select>
           <span class="spacer"></span>
+          <button id="btn-apagar-sel" class="btn danger hidden">Apagar selecionados</button>
           <button id="btn-exportar" class="btn ghost">Exportar CSV</button>
           <button id="btn-novo" class="btn primary">+ Novo subscritor</button>
         </div>
         <div class="card flush">
           <table class="tabela">
             <thead><tr>
+              <th class="sel"><input type="checkbox" id="sel-todos" title="Selecionar todos os visíveis"></th>
               <th data-sort="code">ID</th>
               <th data-sort="owner">Owner</th>
               <th data-sort="type">Type</th>
@@ -171,6 +173,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="app.js?v=202611261309"></script>
+  <script type="module" src="app.js?v=202611261321"></script>
 </body>
 </html>
