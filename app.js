@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261356';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261402';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -496,10 +496,9 @@ function abrirRenovar(id) {
     <form class="form" id="form-renovar" style="margin-top:14px">
       <label class="full">Duração<select name="meses">
         <option value="">Período normal (${mesesDe(s.periodicity)} meses)</option>
-        <option value="3">Reforço de 3 meses</option>
-        <option value="1">Reforço de 1 mês</option></select></label>
-      <label>Value<input name="value" type="number" step="0.01" min="0" value="${esc(s.value)}"></label>
-      <label>Commission<input name="commission" type="number" step="0.01" min="0" value="${esc(s.commission)}"></label>
+        ${[12, 6, 3, 1].filter((m) => m !== mesesDe(s.periodicity)).map((m) => `<option value="${m}">Reforço de ${m} ${m === 1 ? 'mês' : 'meses'}</option>`).join('')}</select></label>
+      <label>Value a cobrar (editável)<input name="value" type="number" step="0.01" min="0" value="${esc(s.value)}"></label>
+      <label>Commission (editável)<input name="commission" type="number" step="0.01" min="0" value="${esc(s.commission)}"></label>
       <label>Data do pagamento<input name="payment_date" type="date" value="${hoje}"></label>
       <label>Início do novo período<input name="start" type="date" required></label>
       <label class="check full"><input type="checkbox" name="paid" checked> Já está pago</label>
