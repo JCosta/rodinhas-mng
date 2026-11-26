@@ -13,7 +13,7 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 | Campo (folha) | Coluna na BD | Notas |
 |---|---|---|
 | ID | `code` | Identificador único do subscritor |
-| PaymentDueDate | `payment_due_date` | Data do próximo pagamento (vazio ou passado = desligado) |
+| PaymentDueDate | `payment_due_date` | Data do próximo pagamento (vazio = arquivado; passado = desligado) |
 | LastPaymentDate | `last_payment_date` | Atualizado automaticamente ao renovar como pago |
 | Value | `value` | Valor por período de avença |
 | Commission | `commission` | Comissão por período |
@@ -24,7 +24,11 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 
 **Lucro:** lucro anual = Value anual − Commission anual − custo mensal do Type × 12. Os custos por Type editam-se no separador **Configuração** da app ou na tabela `type_costs` do Supabase.
 
-**Estados:** *Ativo*, *A vencer* (≤ 30 dias), *Desligado* (sem PaymentDueDate ou com a data já passada) ou *Cancelado* (manual).
+**Estados:** *Ativo*, *A vencer* (≤ 30 dias), *Desligado* (PaymentDueDate já passou), *Arquivado* (sem PaymentDueDate; pode ser reativado) ou *Cancelado* (manual).
+
+**Aviso por WhatsApp:** nos subscritores a vencer, o botão **Copiar mensagem** copia um texto pronto a colar no WhatsApp do contacto e regista a data do aviso. O texto edita-se em **Configuração** (guardado na tabela `app_settings`).
+
+Os valores são mostrados sem símbolo de moeda.
 **Renovar:** regista o pagamento no histórico (`renewals`) e avança o PaymentDueDate em 6 ou 12 meses. Num desligado, o novo período começa na data do pagamento (editável). Também é possível um **reforço de 1 ou 3 meses**, com valores proporcionais.
 
 **Atualizações de base de dados:** quem já correu o `schema.sql` antes deve correr os ficheiros em `supabase/migrations/` por ordem. O `schema.sql` já inclui tudo para instalações novas.

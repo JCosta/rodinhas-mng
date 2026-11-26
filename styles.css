@@ -111,6 +111,7 @@ main { max-width: 1360px; margin: 0 auto; padding: 24px; }
 .badge.ativo { color: var(--ok); background: var(--ok-bg); }
 .badge.a_terminar { color: var(--warn); background: var(--warn-bg); }
 .badge.desligado { color: var(--bad); background: var(--bad-bg); }
+.badge.arquivado { color: var(--off); background: var(--off-bg); }
 .badge.cancelado { color: var(--off); background: var(--off-bg); }
 
 /* Modal */
@@ -122,6 +123,12 @@ main { max-width: 1360px; margin: 0 auto; padding: 24px; }
 .row { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
 .row.end { justify-content: flex-end; }
 .info { background: var(--bg); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+
+/* WhatsApp */
+.btn.wa { color: #128c4a; border-color: #b7e4c7; }
+.btn.wa:hover { background: #ecfaf1; }
+.notif { color: var(--ok); font-size: 12px; }
+code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
 /* Importar */
 .exemplo { background: var(--bg); border-radius: 8px; padding: 10px 14px; margin-bottom: 6px; }

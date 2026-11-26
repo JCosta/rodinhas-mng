@@ -7,6 +7,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 const S = {
   subs: [],
   custos: [],
+  waTemplate: '',
   sort: { campo: 'payment_due_date', asc: true },
 };
 
@@ -14,8 +15,8 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 // ---------------------------------------------------------------- utilitários
-const fmtEUR = new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' });
-const eur = (v) => fmtEUR.format(Number(v) || 0);
+const fmtNum = new Intl.NumberFormat('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const eur = (v) => fmtNum.format(Number(v) || 0);   // valores sem símbolo de moeda
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtData = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
 const isoUTC = (dt) => dt.toISOString().slice(0, 10);
@@ -36,7 +37,7 @@ function somaMeses(iso, meses) {
 const mesesDe = (p) => (p === 'anual' ? 12 : 6);
 const proximoVenc = (iso, p) => somaMeses(iso, mesesDe(p));
 
-const ESTADOS = { ativo: 'Ativo', a_terminar: 'A vencer', desligado: 'Desligado', cancelado: 'Cancelado' };
+const ESTADOS = { ativo: 'Ativo', a_terminar: 'A vencer', desligado: 'Desligado', arquivado: 'Arquivado', cancelado: 'Cancelado' };
 const badge = (e) => `<span class="badge ${e}">${ESTADOS[e] ?? e}</span>`;
 const PER = { semestral: 'Semestral', anual: 'Anual' };
 const titulo = (s) => s.owner ? `${s.code} · ${s.owner}` : s.code;
@@ -124,6 +125,8 @@ async function carregar() {
   S.subs = data;
   const rc = await sb.from('type_costs').select('*').order('type');
   S.custos = rc.error ? [] : rc.data;
+  const rs = await sb.from('app_settings').select('*').eq('key', 'whatsapp_template');
+  S.waTemplate = (!rs.error && rs.data[0]?.value) || 'Olá {owner}! A sua subscrição {id} vence a {data} (daqui a {dias} dias). Valor da renovação: {valor}. Obrigado!';
   preencherFiltros();
   renderConfig();
   renderPainel();
@@ -149,7 +152,8 @@ function renderPainel() {
   const cs = S.subs;
   const vivos = cs.filter((s) => s.status === 'ativo' || s.status === 'a_terminar');
   const aTerminar = cs.filter((s) => s.status === 'a_terminar').sort((a, b) => a.days_left - b.days_left);
-  const desligados = cs.filter((s) => s.status === 'desligado').sort((a, b) => (b.days_left ?? -1e9) - (a.days_left ?? -1e9));
+  const desligados = cs.filter((s) => s.status === 'desligado').sort((a, b) => b.days_left - a.days_left);
+  const arquivados = cs.filter((s) => s.status === 'arquivado').sort((a, b) => String(a.code).localeCompare(String(b.code), 'pt', { numeric: true }));
   const somaK = (arr, k) => arr.reduce((t, s) => t + Number(s[k] || 0), 0);
   const bruto = somaK(vivos, 'value_year'), comissoes = somaK(vivos, 'commission_year'), custos = somaK(vivos, 'cost_year'), lucro = somaK(vivos, 'net_year');
   const soma = (arr) => somaK(arr, 'value');
@@ -161,15 +165,16 @@ function renderPainel() {
       <div class="sub" title="Receita bruta ${eur(bruto)} − comissões ${eur(comissoes)} − custos ${eur(custos)}">bruto ${eur(bruto)} · custos ${eur(custos)}</div></div>
     <div class="kpi"><div class="lbl">Comissões anuais</div><div class="val">${eur(comissoes)}</div><div class="sub">avenças em vigor</div></div>
     <div class="kpi warn"><div class="lbl">A vencer (${DIAS_AVISO} dias)</div><div class="val">${aTerminar.length}</div><div class="sub">${eur(soma(aTerminar))} a receber</div></div>
-    <div class="kpi bad"><div class="lbl">Desligados</div><div class="val">${desligados.length}</div><div class="sub">sem pagamento em dia</div></div>`;
+    <div class="kpi bad"><div class="lbl">Desligados</div><div class="val">${desligados.length}</div><div class="sub">${arquivados.length} arquivado${arquivados.length === 1 ? '' : 's'}</div></div>`;
 
   $('#aviso-dias').textContent = `próximos ${DIAS_AVISO} dias`;
-  const item = (s) => `<div class="item">
+  const item = (s, extra = '') => `<div class="item">
       <div class="who"><b data-editar="${s.id}">${esc(titulo(s))}</b><span>${[s.type, s.hw, PER[s.periodicity], eur(s.value)].filter(Boolean).map(esc).join(' · ')} · ${s.payment_due_date ? 'vence ' + fmtData(s.payment_due_date) : 'sem data de pagamento'}</span></div>
-      <div class="dias">${textoDias(s)}</div>
-      <button class="btn sm" data-renovar="${s.id}">Renovar</button></div>`;
-  $('#lista-a-terminar').innerHTML = aTerminar.map(item).join('') || '<p class="vazio">Nada a vencer. 👌</p>';
-  $('#lista-desligados').innerHTML = desligados.map(item).join('') || '<p class="vazio">Nenhum desligado.</p>';
+      <div class="dias">${textoDias(s)}</div>${extra}
+      <button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button></div>`;
+  $('#lista-a-terminar').innerHTML = aTerminar.map((s) => item(s, botaoWA(s))).join('') || '<p class="vazio">Nada a vencer. 👌</p>';
+  $('#lista-desligados').innerHTML = desligados.map((s) => item(s)).join('') || '<p class="vazio">Nenhum desligado.</p>';
+  $('#lista-arquivados').innerHTML = arquivados.map((s) => item(s)).join('') || '<p class="vazio">Nenhum arquivado.</p>';
 
   // Próximos 12 meses: valor a receber por mês (subscritores em vigor)
   const hoje = new Date();
@@ -226,7 +231,7 @@ function renderLista() {
       <td>${fmtData(s.payment_due_date)}</td>
       <td class="num">${s.status === 'cancelado' || s.days_left == null ? '—' : s.days_left}</td>
       <td>${badge(s.status)}</td>
-      <td><div class="acoes"><button class="btn sm" data-renovar="${s.id}">Renovar</button><button class="btn sm ghost" data-editar="${s.id}">Editar</button></div></td>
+      <td><div class="acoes">${s.status === 'a_terminar' ? botaoWA(s) : ''}<button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button><button class="btn sm ghost" data-editar="${s.id}">Editar</button></div></td>
     </tr>`).join('');
   $('#vazio-clientes').classList.toggle('hidden', lista.length > 0);
   $$('.tabela th[data-sort]').forEach((th) => {
@@ -276,9 +281,8 @@ async function abrirSub(id) {
       <label>Avença<select name="periodicity">
         <option value="semestral" ${v.periodicity === 'semestral' ? 'selected' : ''}>Semestral</option>
         <option value="anual" ${v.periodicity === 'anual' ? 'selected' : ''}>Anual</option></select></label>
-      <span></span>
-      <label>Value (€ por período)<input name="value" type="number" step="0.01" min="0" value="${esc(v.value)}"></label>
-      <label>Commission (€ por período)<input name="commission" type="number" step="0.01" min="0" value="${esc(v.commission)}"></label>
+      <label>Value (por período)<input name="value" type="number" step="0.01" min="0" value="${esc(v.value)}"></label>
+      <label>Commission (por período)<input name="commission" type="number" step="0.01" min="0" value="${esc(v.commission)}"></label>
       <label>Last Payment Date<input name="last_payment_date" type="date" value="${esc(v.last_payment_date)}"></label>
       <label>Payment Due Date<input name="payment_due_date" type="date" value="${esc(v.payment_due_date)}"></label>
       <label class="full">Notas<textarea name="notes">${esc(v.notes)}</textarea></label>
@@ -361,16 +365,17 @@ function abrirRenovar(id) {
   if (!s) return;
   const hoje = hojeISO();
   // Desligado (sem data ou data passada) → novo período começa no dia do pagamento; senão mantém o ciclo
-  const inicioAuto = () => (s.status === 'desligado' ? $('#form-renovar [name=payment_date]').value || hoje : s.payment_due_date);
-  const corpo = abrirModal(`Renovar — ${titulo(s)}`, `
+  const parado = s.status === 'desligado' || s.status === 'arquivado';
+  const inicioAuto = () => (parado ? $('#form-renovar [name=payment_date]').value || hoje : s.payment_due_date);
+  const corpo = abrirModal(`${s.status === 'arquivado' ? 'Reativar' : 'Renovar'} — ${titulo(s)}`, `
     <div class="info" id="renov-info"></div>
     <form class="form" id="form-renovar" style="margin-top:14px">
       <label class="full">Duração<select name="meses">
         <option value="">Período normal (${mesesDe(s.periodicity)} meses)</option>
         <option value="3">Reforço de 3 meses</option>
         <option value="1">Reforço de 1 mês</option></select></label>
-      <label>Value (€)<input name="value" type="number" step="0.01" min="0" value="${esc(s.value)}"></label>
-      <label>Commission (€)<input name="commission" type="number" step="0.01" min="0" value="${esc(s.commission)}"></label>
+      <label>Value<input name="value" type="number" step="0.01" min="0" value="${esc(s.value)}"></label>
+      <label>Commission<input name="commission" type="number" step="0.01" min="0" value="${esc(s.commission)}"></label>
       <label>Data do pagamento<input name="payment_date" type="date" value="${hoje}"></label>
       <label>Início do novo período<input name="start" type="date" required></label>
       <label class="check full"><input type="checkbox" name="paid" checked> Já está pago</label>
@@ -385,7 +390,7 @@ function abrirRenovar(id) {
     const novo = form.start.value ? somaMeses(form.start.value, meses()) : null;
     const dur = form.meses.value ? `Reforço de <b>${meses()} ${meses() === 1 ? 'mês' : 'meses'}</b>` : `Avença <b>${PER[s.periodicity].toLowerCase()}</b>`;
     $('#renov-info', corpo).innerHTML = `${dur}. Payment Due: <b>${s.payment_due_date ? fmtData(s.payment_due_date) : 'sem data'}</b> → <b>${novo ? fmtData(novo) : '—'}</b>` +
-      (s.status === 'desligado' ? '<br><span class="muted small">Está desligado, por isso o novo período começa na data do pagamento.</span>' : '');
+      (parado ? `<br><span class="muted small">Está ${s.status}, por isso o novo período começa na data do pagamento.</span>` : '');
     return novo;
   };
   form.start.addEventListener('change', () => { startManual = true; atualizar(); });
@@ -430,7 +435,7 @@ function abrirRenovar(id) {
 $('#btn-exportar').addEventListener('click', () => {
   const cols = [
     ['ID', 'code'], ['PaymentDueDate', 'payment_due_date'], ['LastPaymentDate', 'last_payment_date'], ['Value', 'value'],
-    ['Commission', 'commission'], ['MonthlyCost', 'monthly_cost'], ['NetYear', 'net_year'], ['Owner', 'owner'], ['Type', 'type'], ['HW', 'hw'], ['Periodicity', 'periodicity'],
+    ['Commission', 'commission'], ['MonthlyCost', 'monthly_cost'], ['NetYear', 'net_year'], ['Owner', 'owner'] ['Type', 'type'], ['HW', 'hw'], ['Periodicity', 'periodicity'],
     ['Status', 'status'], ['DaysLeft', 'days_left'], ['Notes', 'notes'],
   ];
   const cel = (v) => {
@@ -470,8 +475,8 @@ function modeloLinhas() {
   const h = hojeISO();
   const ultimo1 = somaMeses(h, -2), ultimo2 = somaMeses(h, -5);
   return [
-    ['EXEMPLO-1', proximoVenc(ultimo1, 'semestral'), ultimo1, 120, 12, 'Ana Silva', 'Pro', HW_OPCOES[0] || 'Router X1', 'semestral', ''],
-    ['EXEMPLO-2', proximoVenc(ultimo2, 'anual'), ultimo2, 300, 30, 'Rui Costa', 'Basic', HW_OPCOES[1] || HW_OPCOES[0] || 'Box X2', 'anual', 'Paga por transferência'],
+    ['EXEMPLO-1', proximoVenc(ultimo1, 'semestral'), ultimo1, 120, 12, 'Ana Silva', 'C', HW_OPCOES[0] || 'Router X1', 'semestral', ''],
+    ['EXEMPLO-2', proximoVenc(ultimo2, 'anual'), ultimo2, 300, 30, 'Rui Costa', 'P', HW_OPCOES[1] || HW_OPCOES[0] || 'Box X2', 'anual', 'Paga por transferência'],
   ];
 }
 const XLSX_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs';
@@ -485,7 +490,7 @@ $('#btn-modelo').addEventListener('click', async () => {
     const toDate = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
     const dados = [MODELO_CAB, ...modeloLinhas().map((l) => l.map((v, i) => (i === 1 || i === 2) ? toDate(v) : v))];
     const ws = XLSX.utils.aoa_to_sheet(dados, { cellDates: true, dateNF: 'dd/mm/yyyy' });
-    ws['!cols'] = [10, 16, 16, 10, 12, 18, 14, 16, 12, 28].map((w) => ({ wch: w }));
+    ws['!cols'] = [10, 16, 16, 10, 12, 18, 10, 16, 12, 28].map((w) => ({ wch: w }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Subscritores');
     XLSX.writeFile(wb, 'modelo-subscritores.xlsx');
@@ -625,6 +630,7 @@ $('#btn-importar').addEventListener('click', async (e) => {
 
 // ---------------------------------------------------------------- configuração: custos por Type
 function renderConfig() {
+  if (document.activeElement !== $('#wa-template')) { $('#wa-template').value = S.waTemplate; previewWA(); }
   const cont = (t) => S.subs.filter((s) => s.type === t).length;
   $('#tabela-custos tbody').innerHTML = S.custos.map((c) => `<tr>
       <td><b>${esc(c.type)}</b></td>
@@ -634,7 +640,7 @@ function renderConfig() {
     </tr>`).join('') || '<tr><td colspan="4" class="vazio">Sem custos definidos.</td></tr>';
   const semCusto = unicos('type').filter((t) => !S.custos.some((c) => c.type === t));
   $('#aviso-tipos').innerHTML = semCusto.length
-    ? `⚠ Types usados sem custo definido (contam como 0 €): <b>${semCusto.map(esc).join(', ')}</b>`
+    ? `⚠ Types usados sem custo definido (contam como 0): <b>${semCusto.map(esc).join(', ')}</b>`
     : '';
 }
 
@@ -651,7 +657,7 @@ $('#tabela-custos').addEventListener('click', async (e) => {
     carregar();
   } else if (d) {
     const type = d.dataset.apagarCusto;
-    if (!(await confirmar('Apagar custo', `Apagar o custo do Type <b>${esc(type)}</b>? Os subscritores deste Type passam a ter custo 0 €.`, 'Apagar'))) return;
+    if (!(await confirmar('Apagar custo', `Apagar o custo do Type <b>${esc(type)}</b>? Os subscritores deste Type passam a ter custo 0.`, 'Apagar'))) return;
     const { error } = await sb.from('type_costs').delete().eq('type', type);
     if (error) return toast('Erro ao apagar: ' + error.message, true);
     carregar();
@@ -667,6 +673,54 @@ $('#btn-add-custo').addEventListener('click', async () => {
   $('#novo-type').value = ''; $('#novo-custo').value = '';
   toast(`Custo de ${type} adicionado.`);
   carregar();
+});
+
+// ---------------------------------------------------------------- mensagem de aviso (WhatsApp)
+function mensagemWA(s, tpl = S.waTemplate) {
+  const v = { owner: s.owner || '', id: s.code, data: fmtData(s.payment_due_date), dias: s.days_left ?? '', valor: eur(s.value), type: s.type || '', hw: s.hw || '' };
+  return tpl.replace(/\{(\w+)\}/g, (m, k) => (k in v ? String(v[k]) : m));
+}
+function botaoWA(s) {
+  const notif = s.last_notified_at ? `<span class="notif" title="Mensagem copiada a ${fmtData(s.last_notified_at)}">✓ ${fmtData(s.last_notified_at).slice(0, 5)}</span>` : '';
+  return `${notif}<button class="btn sm wa" data-wa="${s.id}" title="Copiar a mensagem de aviso para colar no WhatsApp">Copiar mensagem</button>`;
+}
+async function marcarAvisado(s) {
+  if (s.last_notified_at === hojeISO()) return;
+  const { error } = await sb.from('subscribers').update({ last_notified_at: hojeISO() }).eq('id', s.id);
+  if (!error) carregar();
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-wa]');
+  if (!b) return;
+  const s = S.subs.find((x) => x.id === b.dataset.wa);
+  if (!s) return;
+  const msg = mensagemWA(s);
+  try {
+    await navigator.clipboard.writeText(msg);
+    toast(`Mensagem para ${s.code} copiada — cola no WhatsApp.`);
+    marcarAvisado(s);
+  } catch {
+    // Sem acesso à área de transferência: mostra o texto para copiar à mão
+    const corpo = abrirModal(`Mensagem — ${titulo(s)}`, `<textarea id="wa-msg" rows="6" readonly>${esc(msg)}</textarea>
+      <div class="row end"><button class="btn" data-close>Fechar</button></div>`);
+    const ta = $('#wa-msg', corpo); ta.focus(); ta.select();
+    marcarAvisado(s);
+  }
+});
+
+// ---------------------------------------------------------------- configuração: mensagem WhatsApp
+function previewWA() {
+  const ex = S.subs.find((s) => s.status === 'a_terminar') || { code: 'S-001', owner: 'Ana Silva', payment_due_date: hojeISO(), days_left: 10, value: 120, type: 'C', hw: 'Router' };
+  $('#wa-preview').textContent = mensagemWA(ex, $('#wa-template').value);
+}
+$('#wa-template').addEventListener('input', previewWA);
+$('#btn-wa-guardar').addEventListener('click', async () => {
+  const value = $('#wa-template').value.trim();
+  if (!value) return toast('A mensagem não pode estar vazia.', true);
+  const { error } = await sb.from('app_settings').upsert({ key: 'whatsapp_template', value, updated_at: new Date().toISOString() });
+  if (error) return toast('Erro ao guardar: ' + error.message, true);
+  S.waTemplate = value;
+  toast('Mensagem guardada.');
 });
 
 // ---------------------------------------------------------------- arranque

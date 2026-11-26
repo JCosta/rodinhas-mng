@@ -21,7 +21,7 @@ if (!res.ok) {
 }
 const todos = await res.json();
 const dias = Number(DIAS_AVISO);
-const desligados = todos.filter((s) => s.days_left == null || s.days_left < 0);
+const desligados = todos.filter((s) => s.days_left != null && s.days_left < 0); // arquivados (sem data) ficam de fora
 const aVencer = todos.filter((s) => s.days_left >= 0 && s.days_left <= dias);
 
 console.log(`Total: ${todos.length} · a vencer: ${aVencer.length} · desligados: ${desligados.length}`);
@@ -35,7 +35,7 @@ if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS || !EMAIL_TO) {
   process.exit(0);
 }
 
-const eur = (v) => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(Number(v) || 0);
+const eur = (v) => new Intl.NumberFormat('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v) || 0);
 const data = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 

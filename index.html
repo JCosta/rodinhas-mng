@@ -43,9 +43,13 @@
             <div id="lista-a-terminar"></div>
           </div>
           <div class="card">
-            <div class="card-head"><h2>Desligados</h2><span class="muted">sem data ou data passada</span></div>
+            <div class="card-head"><h2>Desligados</h2><span class="muted">PaymentDueDate já passou</span></div>
             <div id="lista-desligados"></div>
           </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Arquivados</h2><span class="muted">sem PaymentDueDate · podem ser reativados a qualquer altura</span></div>
+          <div id="lista-arquivados"></div>
         </div>
         <div class="card">
           <div class="card-head"><h2>Renovações nos próximos 12 meses</h2><span class="muted">valor bruto a receber por mês</span></div>
@@ -62,6 +66,7 @@
             <option value="ativo">Ativo</option>
             <option value="a_terminar">A vencer</option>
             <option value="desligado">Desligado</option>
+            <option value="arquivado">Arquivado</option>
             <option value="cancelado">Cancelado</option>
           </select>
           <select id="f-owner"><option value="">Todos os owners</option></select>
@@ -107,8 +112,8 @@
             <summary>Ver exemplo do formato</summary>
             <div class="scroll" style="margin-top:10px"><table class="tabela" id="tabela-exemplo"></table></div>
             <ul class="muted small">
-              <li><b>Obrigatório:</b> só o ID. Sem PaymentDueDate (nem LastPaymentDate para o calcular), ou com a data já passada, o subscritor fica <b>Desligado</b>.</li>
-              <li><b>Datas:</b> data do Excel, dd/mm/aaaa ou aaaa-mm-dd. <b>Valores:</b> 120, 120,50 ou 1.234,56 €.</li>
+              <li><b>Obrigatório:</b> só o ID. Sem PaymentDueDate (nem LastPaymentDate para o calcular) fica <b>Arquivado</b>; com a data já passada fica <b>Desligado</b>.</li>
+              <li><b>Datas:</b> data do Excel, dd/mm/aaaa ou aaaa-mm-dd. <b>Valores:</b> 120, 120,50 ou 1.234,56.</li>
               <li><b>Periodicity:</b> semestral ou anual. Se a coluna não existir, assume semestral.</li>
               <li>Se o ID já existir na plataforma, o subscritor é atualizado em vez de duplicado.</li>
             </ul>
@@ -134,15 +139,23 @@
           <h2>Custos mensais por Type</h2>
           <p class="muted">Custo mensal de cada subscritor, conforme o Type. Entra no cálculo do lucro: <b>Value − Commission − custo mensal × meses</b>.</p>
           <table class="tabela" id="tabela-custos">
-            <thead><tr><th>Type</th><th class="num">Custo mensal (€)</th><th class="num">Subscritores</th><th></th></tr></thead>
+            <thead><tr><th>Type</th><th class="num">Custo mensal</th><th class="num">Subscritores</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
           <div class="row">
             <input id="novo-type" placeholder="Novo Type" style="max-width:140px">
-            <input id="novo-custo" type="number" step="0.01" min="0" placeholder="€ / mês" style="max-width:120px">
+            <input id="novo-custo" type="number" step="0.01" min="0" placeholder="custo / mês" style="max-width:120px">
             <button id="btn-add-custo" class="btn">Adicionar</button>
           </div>
           <p id="aviso-tipos" class="muted small"></p>
+        </div>
+        <div class="card" style="max-width:640px">
+          <h2>Mensagem de aviso (WhatsApp)</h2>
+          <p class="muted">Texto copiado pelo botão <b>Copiar mensagem</b> dos subscritores a vencer, para colares no WhatsApp. Campos disponíveis:
+            <code>{owner}</code> <code>{id}</code> <code>{data}</code> <code>{dias}</code> <code>{valor}</code> <code>{type}</code> <code>{hw}</code></p>
+          <textarea id="wa-template" rows="5"></textarea>
+          <p class="muted small">Pré-visualização: <span id="wa-preview"></span></p>
+          <div class="row"><button id="btn-wa-guardar" class="btn primary">Guardar mensagem</button></div>
         </div>
       </section>
     </main>

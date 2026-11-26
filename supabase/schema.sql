@@ -14,6 +14,7 @@ create table if not exists public.subscribers (
   value              numeric(10,2) not null default 0,  -- "Value": valor por período de avença
   commission         numeric(10,2) not null default 0,  -- "Commission": comissão por período
   owner              text,                          -- "Owner"
+  last_notified_at   date,                          -- última vez que a mensagem de aviso foi copiada
   type               text,                          -- "Type" (categoria livre)
   hw                 text,                          -- "HW" (lista fixa definida na app)
   periodicity        text not null default 'semestral' check (periodicity in ('semestral','anual')),
@@ -122,18 +123,42 @@ revoke all on public.type_costs from anon;
 grant select, insert, update, delete on public.type_costs to authenticated;
 grant select on public.type_costs to service_role;
 
+-- ---------- Definições da aplicação (ex.: mensagem de aviso para WhatsApp) ----------
+create table if not exists public.app_settings (
+  key         text primary key,
+  value       text,
+  updated_at  timestamptz not null default now()
+);
+
+insert into public.app_settings (key, value) values
+  ('whatsapp_template', 'Olá {owner}! A sua subscrição {id} vence a {data} (daqui a {dias} dias). Valor da renovação: {valor}. Obrigado!')
+on conflict (key) do nothing;
+
+alter table public.app_settings enable row level security;
+drop policy if exists "app_settings: admins" on public.app_settings;
+create policy "app_settings: admins" on public.app_settings
+  for all to authenticated
+  using ((select public.is_admin()))
+  with check ((select public.is_admin()));
+revoke all on public.app_settings from anon;
+grant select, insert, update, delete on public.app_settings to authenticated;
+grant select on public.app_settings to service_role;
+
 -- ---------- Vista com estado e lucro calculados ----------
 -- security_invoker = true → a vista respeita o RLS de quem consulta
+-- Estados: cancelado (manual) · arquivado (sem PaymentDueDate) · desligado (data passada)
+--          · a_terminar (≤ 30 dias) · ativo
 -- Lucro anual = Value anual − Commission anual − custo mensal do Type × 12
-create or replace view public.subscribers_status
+drop view if exists public.subscribers_status;
+create view public.subscribers_status
 with (security_invoker = true) as
 select
   s.*,
   (s.payment_due_date - current_date) as days_left,
   case
     when not s.active                             then 'cancelado'
-    when s.payment_due_date is null
-      or s.payment_due_date <  current_date       then 'desligado'
+    when s.payment_due_date is null               then 'arquivado'
+    when s.payment_due_date <  current_date       then 'desligado'
     when s.payment_due_date <= current_date + 30  then 'a_terminar'
     else 'ativo'
   end as status,
