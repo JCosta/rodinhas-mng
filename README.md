@@ -76,3 +76,6 @@ supabase/schema.sql              → tabelas, RLS, vista e função de renovaç�
 scripts/avisos.mjs               → script do email semanal
 .github/workflows/avisos.yml     → Action (agendamento desligado)
 ```
+
+## Publicar alterações
+Depois de alterar `app.js`, `styles.css` ou `config.js`, atualiza o número `?v=` em `index.html` (e o import do `config.js` em `app.js`). Assim os browsers vão buscar os ficheiros novos em vez de usarem a cópia em cache.
