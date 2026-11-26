@@ -1,0 +1,55 @@
+name: Backup semanal (encriptado)
+
+on:
+  schedule:
+    - cron: '23 3 * * 0'   # domingos às 03:23 UTC
+  workflow_dispatch:         # permite correr à mão em Actions → Run workflow
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Exportar dados do Supabase
+        run: node scripts/backup.mjs
+        env:
+          SUPABASE_URL: https://byrukjbyhbkjvvlcntqi.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+
+      # O repositório é público: o ficheiro é sempre encriptado antes de ser guardado.
+      - name: Encriptar (AES-256)
+        id: enc
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          shopt -s nullglob
+          files=(backup/*.json)
+          if [ ${#files[@]} -eq 0 ]; then echo "Sem dados exportados."; echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::Secret BACKUP_PASSPHRASE em falta — o backup não é guardado sem encriptação."
+            rm -f backup/*.json; exit 1
+          fi
+          for f in "${files[@]}"; do
+            gzip -9 "$f"
+            gpg --batch --yes --pinentry-mode loopback --passphrase "$BACKUP_PASSPHRASE" \
+                --symmetric --cipher-algo AES256 -o "$f.gz.gpg" "$f.gz"
+            rm -f "$f.gz"
+          done
+          ls -la backup
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Guardar backup (90 dias)
+        if: steps.enc.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-${{ github.run_number }}
+          path: backup/*.gpg
+          retention-days: 90
+          if-no-files-found: error

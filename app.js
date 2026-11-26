@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261548';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS } from './config.js?v=202611261556';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -10,6 +10,7 @@ const S = {
   waTemplate: '',
   sel: new Set(),   // ids selecionados na lista
   pagamentos: [],
+  naoPagos: [],     // pagamentos registados como não pagos (todos)
   metodos: [],      // métodos de pagamento   // renovações dos últimos 12 meses (separador Financeiro)
   sort: { campo: 'payment_due_date', asc: true },
 };
@@ -37,6 +38,9 @@ function somaMeses(iso, meses) {
   const ultimo = new Date(Date.UTC(ny, nm + 1, 0)).getUTCDate();
   return isoUTC(new Date(Date.UTC(ny, nm, Math.min(d, ultimo))));
 }
+/** Dias entre duas datas ISO (b − a). */
+const diasEntre = (a, b) => Math.round((Date.UTC(...b.split('-').map((x, i) => (i === 1 ? x - 1 : +x))) - Date.UTC(...a.split('-').map((x, i) => (i === 1 ? x - 1 : +x)))) / 86400000);
+const somaDiasISO = (iso, n) => { const [y, m, d] = iso.split('-').map(Number); return isoUTC(new Date(Date.UTC(y, m - 1, d + n))); };
 const mesesDe = (p) => (p === 'anual' ? 12 : 6);
 const proximoVenc = (iso, p) => somaMeses(iso, mesesDe(p));
 
@@ -113,6 +117,7 @@ function mostrar(session) {
 
 $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  gravarLS('sessao.ultima', Date.now());
   const f = new FormData(e.target);
   $('#login-erro').textContent = '';
   const { error } = await sb.auth.signInWithPassword({ email: f.get('email'), password: f.get('password') });
@@ -129,11 +134,12 @@ async function carregar() {
     $('#login-erro').textContent = 'Esta conta não tem acesso de administrador.';
     return;
   }
-  const [r1, rc, rs, rm, rp] = await Promise.all([
+  const [r1, rc, rs, rm, rnp, rp] = await Promise.all([
     sb.from('subscribers_status').select('*').order('payment_due_date'),
     sb.from('type_costs').select('*').order('type'),
     sb.from('app_settings').select('*').eq('key', 'whatsapp_template'),
     sb.from('payment_methods').select('name,sort_order').order('sort_order').order('name'),
+    sb.from('renewals').select('id,subscriber_id,payment_date,period_start,period_end,value,commission,payment_method,notes').eq('paid', false).order('payment_date'),
     sb.from('renewals').select('payment_date,value,commission,paid,payment_method').gte('payment_date', somaMeses(hojeISO().slice(0, 8) + '01', -11)),
   ]);
   S.erroCustos = rc.error ? rc.error.message : null;
@@ -147,6 +153,7 @@ async function carregar() {
   }
   S.subs = r1.data;
   S.pagamentos = rp.error ? [] : rp.data;
+  S.naoPagos = rnp.error ? [] : rnp.data;
   preencherFiltros();
   renderConfig();
   renderPainel();
@@ -230,8 +237,8 @@ function renderPainel() {
 
   $('#aviso-dias').textContent = `próximos ${DIAS_AVISO} dias`;
   const item = (s, extra = '') => `<div class="item"${estiloType(s.type)}>
-      <div class="who"><b data-editar="${s.id}">${chipType(s.type)} ${realcar(s.code, q)}${s.owner ? ' · ' + realcar(s.owner, q) : ''}</b><span>${[s.hw, PER[s.periodicity]].filter(Boolean).map(esc).join(' · ')} · ${s.payment_due_date ? (s.days_left < 0 ? 'venceu ' : 'vence ') + fmtData(s.payment_due_date) : 'sem data de pagamento'}</span></div>
-      <div class="dias">${textoDias(s)}</div>${extra}
+      <div class="who"><b data-editar="${s.id}">${chipType(s.type)} ${realcar(s.code, q)}${s.owner ? ' · ' + realcar(s.owner, q) : ''}</b>${recontactar(s) ? `<span class="recontactar" title="Mensagem copiada a ${fmtData(s.last_notified_at)}">🔁 voltar a contactar</span>` : ''}<span>${[s.hw, PER[s.periodicity]].filter(Boolean).map(esc).join(' · ')} · ${s.payment_due_date ? (s.days_left < 0 ? 'venceu ' : 'vence ') + fmtData(s.payment_due_date) : 'sem data de pagamento'}${s.status === 'em_atraso' ? (s.keep_active_until ? ` · <span class="tolerado">tolerado até ${fmtData(s.keep_active_until)}</span>` : ' · tolerado sem prazo') : ''}</span></div>
+      <div class="dias ${s.status === 'a_terminar' ? urgencia(s) : ''}">${textoDias(s)}</div>${extra}
       <button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button></div>`;
   const bManter = (s) => `<button class="btn sm ghost" data-manter="${s.id}" title="Continua com serviço apesar do pagamento em atraso">Manter ligado</button>`;
   const bDesligar = (s) => `<button class="btn sm ghost danger" data-desligar="${s.id}" title="Passa para Desligados">Desligar</button>`;
@@ -245,21 +252,136 @@ function renderPainel() {
   secao('#lista-desligados', 'desligado', desligados, (s) => item(s, bManter(s)), 'Nenhum desligado.');
   secao('#lista-arquivados', 'arquivado', arquivados, (s) => item(s), 'Nenhum arquivado.');
 
+  // ---- Por receber (pagamentos registados como não pagos)
+  const subPorId = new Map(S.subs.map((s) => [s.id, s]));
+  const naoPagos = S.naoPagos.map((r) => ({ ...r, sub: subPorId.get(r.subscriber_id) })).filter((r) => r.sub);
+  const npF = naoPagos.filter((r) => corresponde(r.sub));
+  $('#cnt-por_receber').textContent = q ? `${npF.length} de ${naoPagos.length}` : naoPagos.length;
+  $('#lista-por-receber').innerHTML = npF.map((r) => `<div class="item"${estiloType(r.sub.type)}>
+      <div class="who"><b data-editar="${r.sub.id}">${chipType(r.sub.type)} ${realcar(r.sub.code, q)}${r.sub.owner ? ' · ' + realcar(r.sub.owner, q) : ''}</b>
+        <span>${eur(r.value)} · período ${fmtData(r.period_start)} → ${fmtData(r.period_end)} · registado a ${fmtData(r.payment_date)}${r.payment_method ? ' · ' + esc(r.payment_method) : ''}</span></div>
+      <div class="dias">há ${Math.max(0, diasEntre(r.payment_date, hojeISO()))} dias</div>
+      <button class="btn sm primary" data-pagar="${r.id}">Marcar como pago</button></div>`).join('')
+    || `<p class="vazio">${q ? 'Sem resultados para a pesquisa.' : 'Nada por receber. 👌'}</p>`;
+
+  renderHoje(naoPagos);
+
   // Com pesquisa ativa, abre as secções que têm resultados (sem alterar a preferência guardada)
   if (q) $$('#tab-painel .sec').forEach((el) => el.classList.toggle('fechada', !$('.item', el)));
   else aplicarSecoes();
 }
 
-// Manter ligado / Desligar (pagamento em atraso)
+// ---------- urgência, avisos e caixa "Hoje"
+/** a_terminar: vermelho ≤ 7 dias, laranja ≤ 15, amarelo ≤ 30 */
+const urgencia = (s) => (s.days_left <= 7 ? 'u1' : s.days_left <= 15 ? 'u2' : 'u3');
+/** Avisado neste ciclo de renovação (mensagem copiada nos 45 dias antes do vencimento ou depois) */
+const avisadoNoCiclo = (s) => !!(s.last_notified_at && s.payment_due_date && s.last_notified_at >= somaDiasISO(s.payment_due_date, -(DIAS_AVISO + 15)));
+/** Avisado há mais de 7 dias e ainda não renovou */
+const recontactar = (s) => (s.status === 'a_terminar' || s.status === 'em_atraso') && avisadoNoCiclo(s) && diasEntre(s.last_notified_at, hojeISO()) > 7;
+
+let hojeTudo = false;
+function renderHoje(naoPagos) {
+  const acoes = [];
+  const quem = (s) => `<b data-editar="${s.id}">${chipType(s.type)} ${esc(s.code)}${s.owner ? ' · ' + esc(s.owner) : ''}</b>`;
+  const bMsg = (s) => `<button class="btn sm wa" data-wa="${s.id}">Copiar msg</button>`;
+  const bRen = (s) => `<button class="btn sm" data-renovar="${s.id}">Renovar</button>`;
+  for (const s of S.subs) {
+    if (s.status === 'em_atraso' && s.keep_active_until && diasEntre(hojeISO(), s.keep_active_until) <= 3) {
+      const d = diasEntre(hojeISO(), s.keep_active_until);
+      acoes.push({ p: 1, o: d, html: `<span class="emo">⏳</span><div class="txt">${quem(s)}<br><span>Prazo de tolerância ${d === 0 ? 'termina hoje' : `termina em ${d} dia${d === 1 ? '' : 's'}`} (${fmtData(s.keep_active_until)}) · em atraso há ${-s.days_left} dias</span></div>${bMsg(s)}<button class="btn sm ghost" data-manter="${s.id}">Prolongar</button>${bRen(s)}` });
+    }
+    if (s.status === 'a_terminar' && s.days_left <= 7 && !avisadoNoCiclo(s)) {
+      acoes.push({ p: 2, o: s.days_left, html: `<span class="emo">⏰</span><div class="txt">${quem(s)}<br><span>Vence ${s.days_left === 0 ? 'hoje' : `em ${s.days_left} dia${s.days_left === 1 ? '' : 's'}`} (${fmtData(s.payment_due_date)}) e ainda não foi avisado</span></div>${bMsg(s)}${bRen(s)}` });
+    }
+    if (recontactar(s)) {
+      acoes.push({ p: 3, o: -diasEntre(s.last_notified_at, hojeISO()), html: `<span class="emo">🔁</span><div class="txt">${quem(s)}<br><span>Avisado há ${diasEntre(s.last_notified_at, hojeISO())} dias e ainda não renovou · ${s.days_left < 0 ? `em atraso há ${-s.days_left} dias` : `vence em ${s.days_left} dias`}</span></div>${bMsg(s)}${bRen(s)}` });
+    }
+    if (s.status === 'em_atraso' && s.days_left < -30) {
+      acoes.push({ p: 4, o: s.days_left, html: `<span class="emo">⚠️</span><div class="txt">${quem(s)}<br><span>Em atraso há ${-s.days_left} dias e continua ligado</span></div>${bRen(s)}<button class="btn sm ghost danger" data-desligar="${s.id}">Desligar</button>` });
+    }
+  }
+  for (const r of naoPagos) {
+    acoes.push({ p: 5, o: r.payment_date, html: `<span class="emo">💸</span><div class="txt">${quem(r.sub)}<br><span>Pagamento por receber: ${eur(r.value)} (registado a ${fmtData(r.payment_date)})</span></div><button class="btn sm primary" data-pagar="${r.id}">Marcar como pago</button>` });
+  }
+  acoes.sort((a, b) => a.p - b.p || (a.o < b.o ? -1 : a.o > b.o ? 1 : 0));
+  const MAX = 5;
+  const vis = hojeTudo ? acoes : acoes.slice(0, MAX);
+  $('#hoje').innerHTML = `<h2>📌 Hoje ${acoes.length ? `<span class="cnt">${acoes.length}</span>` : ''}</h2>` +
+    (acoes.length
+      ? vis.map((a) => `<div class="acao">${a.html}</div>`).join('') +
+        (acoes.length > MAX ? `<button class="btn sm ghost mais" id="hoje-mais">${hojeTudo ? 'Mostrar só as 5 mais urgentes' : `Ver todas (${acoes.length})`}</button>` : '')
+      : '<p class="ok">✅ Nada urgente hoje.</p>');
+  $('#hoje-mais')?.addEventListener('click', () => { hojeTudo = !hojeTudo; renderHoje(naoPagos); });
+}
+
+// ---------- Manter ligado (com prazo) / Desligar
+function abrirManter(s) {
+  const hoje = hojeISO();
+  const atual = s.keep_active_until && s.keep_active_until >= hoje ? s.keep_active_until : null;
+  const corpo = abrirModal(`Manter ligado — ${titulo(s)}`, `
+    <div class="info">Pagamento em atraso desde <b>${fmtData(s.payment_due_date)}</b>. Até quando o mantens ligado? Passado o prazo, volta automaticamente aos <b>Desligados</b>.</div>
+    <form class="form" id="form-manter" style="margin-top:14px">
+      <label class="full">Prazo<select name="prazo">
+        <option value="7">7 dias (até ${fmtData(somaDiasISO(hoje, 7))})</option>
+        <option value="15" selected>15 dias (até ${fmtData(somaDiasISO(hoje, 15))})</option>
+        <option value="30">30 dias (até ${fmtData(somaDiasISO(hoje, 30))})</option>
+        <option value="data">Escolher data…</option>
+        <option value="sem">Sem prazo</option></select></label>
+      <label class="full hidden" id="lbl-data">Até<input name="ate" type="date" min="${hoje}" value="${atual || somaDiasISO(hoje, 15)}"></label>
+    </form>
+    <div class="row end"><button class="btn" data-close type="button">Cancelar</button><button class="btn primary" id="btn-manter-ok" type="button">Manter ligado</button></div>`);
+  const form = $('#form-manter', corpo);
+  form.prazo.addEventListener('change', () => $('#lbl-data', corpo).classList.toggle('hidden', form.prazo.value !== 'data'));
+  $('#btn-manter-ok', corpo).addEventListener('click', async () => {
+    const p = form.prazo.value;
+    const ate = p === 'sem' ? null : p === 'data' ? form.ate.value : somaDiasISO(hoje, Number(p));
+    if (p === 'data' && (!ate || ate < hoje)) return toast('Escolhe uma data a partir de hoje.', true);
+    const { error } = await sb.from('subscribers').update({ keep_active: true, keep_active_until: ate }).eq('id', s.id);
+    if (error) return toast('Erro: ' + error.message, true);
+    fecharModal();
+    toast(`${s.code} mantido ligado ${ate ? 'até ' + fmtData(ate) : 'sem prazo'}.`);
+    carregar();
+  });
+}
 document.addEventListener('click', async (e) => {
+  if (e.target.closest('#modal')) return;
   const m = e.target.closest('[data-manter]'), d = e.target.closest('[data-desligar]');
-  if (!m && !d) return;
-  const id = (m || d).dataset[m ? 'manter' : 'desligar'];
-  const s = S.subs.find((x) => x.id === id);
-  const { error } = await sb.from('subscribers').update({ keep_active: !!m }).eq('id', id);
+  if (m) return abrirManter(S.subs.find((x) => x.id === m.dataset.manter));
+  if (!d) return;
+  const s = S.subs.find((x) => x.id === d.dataset.desligar);
+  const { error } = await sb.from('subscribers').update({ keep_active: false, keep_active_until: null }).eq('id', s.id);
   if (error) return toast('Erro: ' + error.message, true);
-  toast(m ? `${s.code} mantido ligado (em atraso).` : `${s.code} desligado.`);
+  toast(`${s.code} desligado.`);
   carregar();
+});
+
+// ---------- Marcar pagamento como pago
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#modal')) return;
+  const b = e.target.closest('[data-pagar]');
+  if (!b) return;
+  const r = S.naoPagos.find((x) => x.id === b.dataset.pagar);
+  const s = r && S.subs.find((x) => x.id === r.subscriber_id);
+  if (!r || !s) return;
+  const corpo = abrirModal(`Marcar como pago — ${titulo(s)}`, `
+    <div class="info">${eur(r.value)} · período ${fmtData(r.period_start)} → ${fmtData(r.period_end)}</div>
+    <form class="form" id="form-pagar" style="margin-top:14px">
+      <label>Data do pagamento<input name="payment_date" type="date" required value="${hojeISO()}"></label>
+      <label>Método de pagamento<select name="method"><option value="">— escolher —</option>${S.metodos.map((m) => `<option ${m === r.payment_method ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
+      <label class="full">Value recebido<input name="value" type="number" step="0.01" min="0" value="${esc(r.value)}"></label>
+    </form>
+    <div class="row end"><button class="btn" data-close type="button">Cancelar</button><button class="btn primary" id="btn-pagar-ok" type="button">Confirmar pagamento</button></div>`);
+  $('#btn-pagar-ok', corpo).addEventListener('click', async () => {
+    const f = new FormData($('#form-pagar', corpo));
+    if (!f.get('payment_date')) return toast('Indica a data do pagamento.', true);
+    const { error } = await sb.from('renewals').update({
+      paid: true, payment_date: f.get('payment_date'), payment_method: f.get('method') || r.payment_method || null, value: Number(f.get('value')) || 0,
+    }).eq('id', r.id);
+    if (error) return toast('Erro: ' + error.message, true);
+    fecharModal();
+    toast(`Pagamento de ${s.code} marcado como pago.`);
+    carregar();
+  });
 });
 
 // ---------------------------------------------------------------- financeiro
@@ -478,7 +600,8 @@ async function abrirSub(id) {
       <label>Last Payment Date<input name="last_payment_date" type="date" value="${esc(v.last_payment_date)}"></label>
       <label>Payment Due Date<input name="payment_due_date" type="date" value="${esc(v.payment_due_date)}"></label>
       <label class="full">Notas<textarea name="notes">${esc(v.notes)}</textarea></label>
-      <label class="check full"><input type="checkbox" name="keep_active" ${v.keep_active ? 'checked' : ''}> Manter ligado mesmo com o pagamento em atraso</label>
+      <label class="check"><input type="checkbox" name="keep_active" ${v.keep_active ? 'checked' : ''}> Manter ligado mesmo com o pagamento em atraso</label>
+      <label>… até (vazio = sem prazo)<input name="keep_active_until" type="date" value="${esc(v.keep_active_until)}"></label>
       ${s ? `<label class="check full"><input type="checkbox" name="cancelado" ${s.active ? '' : 'checked'}> Cancelado (deixa de contar e de aparecer nos avisos)</label>` : ''}
     </form>
     ${s ? '<div class="hist-head"><h3>Histórico de pagamentos</h3><button class="btn sm" id="btn-add-pag" type="button">+ Adicionar pagamento</button></div><div id="historico" class="muted">A carregar…</div>' : ''}
@@ -515,6 +638,7 @@ async function abrirSub(id) {
       payment_due_date: t('payment_due_date'),
       notes: t('notes'),
       keep_active: !!f.get('keep_active'),
+      keep_active_until: f.get('keep_active') ? t('keep_active_until') : null,
     };
     if (s) reg.active = !f.get('cancelado');
     const { error } = s ? await sb.from('subscribers').update(reg).eq('id', s.id) : await sb.from('subscribers').insert(reg);
@@ -1044,7 +1168,7 @@ const AUD = { linhas: [], pagina: 0, tam: 200 };
 const ACOES = { criar: 'Criar', editar: 'Editar', renovar: 'Renovar', pagamento: 'Pagamento (histórico)', editar_pag: 'Editar pagamento', apagar_pag: 'Apagar pagamento', apagar: 'Apagar', aviso: 'Aviso copiado', ligar: 'Manter ligado', desligar: 'Desligar', config: 'Configuração' };
 const CAMPO = {
   code: 'ID', payment_due_date: 'PaymentDueDate', last_payment_date: 'LastPaymentDate', value: 'Value', commission: 'Commission',
-  owner: 'Owner', type: 'Type', hw: 'HW', periodicity: 'Avença', active: 'Ativo', keep_active: 'Manter ligado',
+  owner: 'Owner', type: 'Type', hw: 'HW', periodicity: 'Avença', active: 'Ativo', keep_active: 'Manter ligado', keep_active_until: 'Manter ligado até',
   notes: 'Notas', last_notified_at: 'Aviso copiado em', monthly_cost: 'Custo mensal',
   payment_date: 'Data do pagamento', period_start: 'Início do período', period_end: 'Fim do período', paid: 'Pago', payment_method: 'Método',
 };
@@ -1064,7 +1188,7 @@ function detalhesAud(r) {
   switch (r.action) {
     case 'criar':
     case 'apagar': {
-      const { active, keep_active, ...resto } = d;
+      const { active, keep_active, keep_active_until, ...resto } = d;
       return lista(resto);
     }
     case 'editar': return difs(d);
@@ -1074,7 +1198,7 @@ function detalhesAud(r) {
     case 'renovar':
       return `Pagamento a <b>${fmtData(d.payment_date)}</b> · período ${fmtData(d.period_start)} → <b>${fmtData(d.period_end)}</b> · Value <b>${eur(d.value)}</b> · Commission ${eur(d.commission)} · ${d.payment_method ? 'método <b>' + esc(d.payment_method) + '</b> · ' : ''}${d.paid ? 'pago' : '<b>não pago</b>'}${d.notes ? ' · ' + esc(d.notes) : ''}`;
     case 'aviso': return 'Mensagem de aviso copiada para o WhatsApp';
-    case 'ligar': return 'Mantido ligado com o pagamento em atraso';
+    case 'ligar': return `Mantido ligado com o pagamento em atraso${d.keep_active_until?.[1] ? ` até <b>${fmtData(d.keep_active_until[1])}</b>` : ' (sem prazo)'}`;
     case 'desligar': return 'Passou a desligado';
     case 'config': {
       const alvo = r.entity === 'type_cost' ? `Custo do Type <b>${esc(r.record_id)}</b>` : r.entity === 'payment_method' ? `Método de pagamento <b>${esc(r.record_id)}</b>` : `Definição <b>${r.record_id === 'whatsapp_template' ? 'mensagem de WhatsApp' : esc(r.record_id)}</b>`;
@@ -1117,6 +1241,29 @@ $('#a-pesquisa').addEventListener('input', () => { clearTimeout(tAud); tAud = se
 $('#a-acao').addEventListener('change', () => carregarAuditoria(true));
 $('#a-atualizar').addEventListener('click', () => carregarAuditoria(true));
 $('#a-mais').addEventListener('click', () => carregarAuditoria(false));
+
+// ---------------------------------------------------------------- sessão com tempo limite
+// Termina a sessão após SESSAO_MINUTOS sem atividade (partilhado entre separadores do browser).
+const SESSAO_MS = (Number(SESSAO_MINUTOS) || 0) * 60000;
+const marcarAtividade = () => gravarLS('sessao.ultima', Date.now());
+if (SESSAO_MS > 0) {
+  let ult = 0;
+  ['click', 'keydown', 'touchstart', 'scroll', 'mousemove'].forEach((ev) => document.addEventListener(ev, () => {
+    if (Date.now() - ult > 15000) { ult = Date.now(); marcarAtividade(); }   // no máximo a cada 15 s
+  }, { passive: true }));
+  const verificar = async () => {
+    if ($('#app-view').classList.contains('hidden')) return;
+    const ultima = Number(lerLS('sessao.ultima', 0)) || Date.now();
+    if (Date.now() - ultima > SESSAO_MS) {
+      await sb.auth.signOut();
+      fecharModal();
+      $('#login-erro').textContent = `Sessão terminada após ${SESSAO_MINUTOS} minutos sem atividade.`;
+    }
+  };
+  setInterval(verificar, 30000);
+  setTimeout(verificar, 1500);   // ao abrir a app: sessão antiga sem atividade termina logo
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) verificar(); });
+}
 
 // ---------------------------------------------------------------- arranque
 (async () => {

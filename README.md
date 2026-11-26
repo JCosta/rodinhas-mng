@@ -26,6 +26,12 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 
 **Estados:** *Ativo*, *A vencer* (≤ 30 dias), *Em atraso* (PaymentDueDate já passou mas mantido ligado — botão **Manter ligado**), *Desligado* (PaymentDueDate já passou), *Arquivado* (sem PaymentDueDate; pode ser reativado) ou *Cancelado* (manual).
 
+**Painel — caixa 📌 Hoje:** as ações mais urgentes (prazo de tolerância a acabar, a vencer em ≤ 7 dias sem aviso, avisados há > 7 dias que não renovaram, em atraso há > 30 dias, pagamentos por receber). Os "A vencer" têm cor de urgência (vermelho ≤ 7 dias, laranja ≤ 15, amarelo ≤ 30) e a secção 💸 **Por receber** lista os pagamentos não pagos com botão **Marcar como pago**.
+
+**Manter ligado com prazo:** ao manter ligado um cliente em atraso escolhe-se até quando (7/15/30 dias, data ou sem prazo). Passado o prazo volta sozinho aos Desligados.
+
+**Sessão:** termina automaticamente após `SESSAO_MINUTOS` (em `config.js`, 30 por defeito) sem atividade.
+
 **Separadores:** *Painel* (só operacional: a vencer, em atraso, desligados, arquivados) · *Subscritores* · *Financeiro* (receita, comissões, custos por Type, lucro líquido mensal, previsão de 12 meses e pagamentos registados) · *Importar* · *Configuração* · *Auditoria*.
 
 **Auditoria:** todas as ações (criar, editar, renovar, apagar, avisos, manter ligado/desligar, configuração) ficam registadas na tabela `audit_log` por triggers da base de dados, com utilizador e data/hora. O registo é só de leitura: não pode ser alterado nem apagado a partir da app.
@@ -68,7 +74,16 @@ O GitHub Pages grátis exige um repositório **público**. Não há segredos no 
 ### 4. Importar a folha atual
 Entrar na app → **Importar** → escolher o `.xlsx` ou `.csv`. As colunas são reconhecidas pelos nomes (ID, PaymentDueDate, …) e podes corrigir a correspondência antes de importar. Se um ID já existir, os dados desse subscritor são atualizados.
 
-### 5. (Opcional) Avisos semanais por email
+### 5. Backup semanal (encriptado)
+A Action **Backup semanal (encriptado)** corre aos domingos e exporta todas as tabelas para um ficheiro encriptado com AES-256, guardado 90 dias em **Actions → (execução) → Artifacts**. Como o repositório é público, o ficheiro **nunca** é guardado sem encriptação.
+1. **Settings → Secrets and variables → Actions**: criar `SUPABASE_SECRET_KEY` (Supabase → Project Settings → API Keys → *secret key*) e `BACKUP_PASSPHRASE` (uma palavra-passe longa — guarda-a num gestor de passwords; sem ela o backup não se abre).
+2. Testar: **Actions → Backup semanal (encriptado) → Run workflow**.
+3. Abrir um backup: descarregar o artifact, extrair o `.zip` e
+   ```bash
+   gpg -d rodinhas-AAAA-MM-DD.json.gz.gpg | gunzip > backup.json
+   ```
+
+### 6. (Opcional) Avisos semanais por email
 1. **Settings → Secrets and variables → Actions → New repository secret**:
    - `SUPABASE_SECRET_KEY`: Supabase → Project Settings → API Keys → *secret key* (`sb_secret_…`). **Nunca a pôr no código.**
    - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`: por exemplo, Gmail: `smtp.gmail.com`, `465`, o teu email e uma [App Password](https://myaccount.google.com/apppasswords)

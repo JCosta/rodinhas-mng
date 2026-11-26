@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Gestão de Avenças</title>
-  <link rel="stylesheet" href="styles.css?v=202611261548">
+  <link rel="stylesheet" href="styles.css?v=202611261556">
 </head>
 <body>
   <!-- Login -->
@@ -44,6 +44,7 @@
           <button id="p-expandir" class="btn ghost sm">Expandir tudo</button>
           <button id="p-colapsar" class="btn ghost sm">Colapsar tudo</button>
         </div>
+        <div class="card hoje" id="hoje"></div>
         <div class="kpis" id="kpis"></div>
         <div class="grid2">
           <div class="card sec" data-sec="a_terminar">
@@ -64,6 +65,10 @@
             <button class="card-head sec-head" type="button"><h2><span class="emo">🗄️</span> Arquivados <span class="cnt" id="cnt-arquivado"></span></h2><span class="muted">sem PaymentDueDate · reativáveis</span><span class="chev">▾</span></button>
             <div class="sec-body" id="lista-arquivados"></div>
           </div>
+        </div>
+        <div class="card sec" data-sec="por_receber">
+          <button class="card-head sec-head" type="button"><h2><span class="emo">💸</span> Por receber <span class="cnt" id="cnt-por_receber"></span></h2><span class="muted">pagamentos registados como não pagos</span><span class="chev">▾</span></button>
+          <div class="sec-body" id="lista-por-receber"></div>
         </div>
       </section>
 
@@ -249,6 +254,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="app.js?v=202611261548"></script>
+  <script type="module" src="app.js?v=202611261556"></script>
 </body>
 </html>

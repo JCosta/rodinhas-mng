@@ -4,6 +4,9 @@
 export const SUPABASE_URL = 'https://byrukjbyhbkjvvlcntqi.supabase.co';
 export const SUPABASE_KEY = 'sb_publishable_a6_YtBlnmqnal7XGoVZsGw_J8tDE6ch';
 
+// Minutos sem atividade até a sessão terminar automaticamente (0 = nunca)
+export const SESSAO_MINUTOS = 30;
+
 // Dias de antecedência para considerar uma avença "a terminar"
 export const DIAS_AVISO = 30;
 

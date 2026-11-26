@@ -20,6 +20,7 @@ create table if not exists public.subscribers (
   periodicity        text not null default 'semestral' check (periodicity in ('semestral','anual')),
   active             boolean not null default true, -- false = cancelou
   keep_active        boolean not null default false, -- true = continua ligado apesar do pagamento em atraso
+  keep_active_until  date,                          -- prazo da tolerância (vazio = sem prazo); depois volta a desligado
   notes              text,
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now(),
@@ -67,6 +68,7 @@ create table if not exists public.admins (
 );
 alter table public.admins enable row level security;
 revoke all on public.admins from anon, authenticated;
+grant select on public.admins to service_role;   -- para o backup semanal
 
 create or replace function public.is_admin()
 returns boolean
@@ -184,7 +186,9 @@ select
     when not s.active                             then 'cancelado'
     when s.payment_due_date is null               then 'arquivado'
     when s.payment_due_date <  current_date
-     and s.keep_active                            then 'em_atraso'
+     and s.keep_active
+     and (s.keep_active_until is null
+          or s.keep_active_until >= current_date) then 'em_atraso'
     when s.payment_due_date <  current_date       then 'desligado'
     when s.payment_due_date <= current_date + 30  then 'a_terminar'
     else 'ativo'
@@ -256,6 +260,7 @@ begin
          value             = case when p_months is null then coalesce(p_value, value) else value end,
          commission        = case when p_months is null then coalesce(p_commission, commission) else commission end,
          keep_active       = false,
+         keep_active_until = null,
          active            = true
    where id = s.id
   returning * into s;
@@ -382,7 +387,8 @@ begin
     if d = '{}'::jsonb then return new; end if;
     act := case
       when d ?& array['last_notified_at'] and (select count(*) from jsonb_object_keys(d)) = 1 then 'aviso'
-      when d ? 'keep_active' and (select count(*) from jsonb_object_keys(d)) = 1 then
+      when (d ? 'keep_active' or d ? 'keep_active_until')
+       and not exists (select 1 from jsonb_object_keys(d) k where k not in ('keep_active', 'keep_active_until')) then
         case when new.keep_active then 'ligar' else 'desligar' end
       else 'editar' end;
     perform public.audit_write(act, 'subscriber', new.id::text, new.code, d);
