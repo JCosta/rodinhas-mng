@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261540';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261548';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -630,8 +630,7 @@ function abrirPagamento(s, r) {
       : await sb.from('renewals').update(reg).eq('id', r.id);
     if (error) { e.target.disabled = false; return toast('Erro ao gravar: ' + error.message, true); }
     if (novo && f.get('atualizar_due')) {
-      const upd = { payment_due_date: reg.period_end };
-      if (reg.paid && (!s.last_payment_date || reg.payment_date > s.last_payment_date)) upd.last_payment_date = reg.payment_date;
+      const upd = { payment_due_date: reg.period_end };   // o LastPaymentDate é atualizado pela base de dados
       const { error: e2 } = await sb.from('subscribers').update(upd).eq('id', s.id);
       if (e2) toast('Pagamento gravado, mas não consegui atualizar o PaymentDueDate: ' + e2.message, true);
     }

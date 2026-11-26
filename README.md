@@ -32,7 +32,7 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 
 **Cor por Type:** cada Type tem uma cor (tabela `type_costs`, editável em Configuração), usada nas listas para os distinguir.
 
-**Histórico de pagamentos:** no Editar de cada subscritor é possível adicionar, editar e apagar pagamentos antigos sem alterar o PaymentDueDate (com opção para o atualizar). Tudo fica na Auditoria.
+**Histórico de pagamentos:** no Editar de cada subscritor é possível adicionar, editar e apagar pagamentos antigos sem alterar o PaymentDueDate (com opção para o atualizar). Tudo fica na Auditoria. O LastPaymentDate é atualizado automaticamente (pela base de dados) com o pagamento pago mais recente.
 
 **Métodos de pagamento:** escolhidos ao renovar (lista editável em Configuração, tabela `payment_methods`); o Financeiro mostra os totais por método.
 

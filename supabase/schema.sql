@@ -267,6 +267,41 @@ end $$;
 revoke all on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date, integer, text) from public, anon;
 grant execute on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date, integer, text) to authenticated;
 
+-- ---------- LastPaymentDate sincronizado com o histórico de pagamentos ----------
+-- Inserir pagamento pago      → LastPaymentDate = o mais recente entre o atual e o novo
+-- Editar/apagar o último      → recalcula a partir dos pagamentos pagos que restam
+--                               (se não restar nenhum, mantém o valor atual)
+create or replace function public.sync_last_payment()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  sid   uuid := coalesce(new.subscriber_id, old.subscriber_id);
+  atual date;
+  maxp  date;
+begin
+  select last_payment_date into atual from public.subscribers where id = sid;
+  if not found then return coalesce(new, old); end if;   -- subscritor a ser apagado
+  select max(payment_date) into maxp from public.renewals where subscriber_id = sid and paid;
+
+  perform set_config('app.in_sync', '1', true);
+  if tg_op = 'INSERT' then
+    if new.paid and (atual is null or new.payment_date > atual) then
+      update public.subscribers set last_payment_date = new.payment_date where id = sid;
+    end if;
+  elsif (tg_op = 'DELETE' and old.paid and old.payment_date = atual)
+     or (tg_op = 'UPDATE' and ((old.paid and old.payment_date = atual) or (new.paid and (atual is null or new.payment_date > atual)))) then
+    update public.subscribers set last_payment_date = coalesce(maxp, atual) where id = sid;
+  end if;
+  perform set_config('app.in_sync', '', true);
+  return coalesce(new, old);
+end $$;
+
+drop trigger if exists sync_last_payment on public.renewals;
+create trigger sync_last_payment after insert or update or delete on public.renewals
+  for each row execute function public.sync_last_payment();
+
 -- ---------- Log de auditoria ----------
 -- Registado por triggers na base de dados: não depende da app e não pode ser alterado
 -- nem apagado pelos utilizadores (só leitura para admins).
@@ -341,6 +376,8 @@ begin
   else
     -- a renovação já fica registada pela tabela renewals
     if current_setting('app.in_renew', true) = '1' then return new; end if;
+    -- atualização automática do LastPaymentDate (já registada como pagamento)
+    if current_setting('app.in_sync', true) = '1' then return new; end if;
     d := public.audit_diff(to_jsonb(old), to_jsonb(new));
     if d = '{}'::jsonb then return new; end if;
     act := case
