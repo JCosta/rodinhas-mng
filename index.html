@@ -18,7 +18,7 @@
     // tema escolhido (antes de desenhar a página, para não piscar)
     try { const t = localStorage.getItem('tema'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
   </script>
-  <link rel="stylesheet" href="styles.css?v=202611261628">
+  <link rel="stylesheet" href="styles.css?v=202611261709">
 </head>
 <body>
   <!-- Login -->
@@ -283,6 +283,14 @@
           <p class="muted small">Pré-visualização: <span id="wa-preview"></span></p>
           <div class="row"><button id="btn-wa-guardar" class="btn primary">Guardar mensagem</button></div>
         </div>
+        <div class="card" style="max-width:640px">
+          <h2>Mensagem de agradecimento (WhatsApp)</h2>
+          <p class="muted">Proposta depois de renovar ou de marcar um pagamento como pago, e no botão <b>Agradecer</b> do histórico. Campos disponíveis:
+            <code>{owner}</code> <code>{id}</code> <code>{valor}</code> <code>{ate}</code> <code>{inicio}</code> <code>{data}</code> <code>{metodo}</code> <code>{type}</code> <code>{hw}</code></p>
+          <textarea id="ob-template" rows="4"></textarea>
+          <p class="muted small">Pré-visualização: <span id="ob-preview"></span></p>
+          <div class="row"><button id="btn-ob-guardar" class="btn primary">Guardar mensagem</button></div>
+        </div>
       </section>
       <!-- Auditoria -->
       <section id="tab-auditoria" class="tab-panel hidden">
@@ -328,6 +336,6 @@
   <div id="toast" class="toast hidden"></div>
   <div id="toast-desfazer" class="toast desfazer hidden" role="status"></div>
 
-  <script type="module" src="app.js?v=202611261628"></script>
+  <script type="module" src="app.js?v=202611261709"></script>
 </body>
 </html>

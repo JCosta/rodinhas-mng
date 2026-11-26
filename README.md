@@ -46,6 +46,8 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 
 **Métodos de pagamento:** escolhidos ao renovar (lista editável em Configuração, tabela `payment_methods`); o Financeiro mostra os totais por método.
 
+**Agradecimento:** depois de renovar ou de marcar um pagamento como pago, a app propõe uma mensagem de agradecimento pronta a copiar (modelo editável em Configuração; botão **Agradecer** no histórico).
+
 **Aviso por WhatsApp:** nos subscritores a vencer, o botão **Copiar mensagem** copia um texto pronto a colar no WhatsApp do contacto e regista a data do aviso. O texto edita-se em **Configuração** (guardado na tabela `app_settings`).
 
 Os valores são mostrados sem símbolo de moeda.

@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS } from './config.js?v=202611261628';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS } from './config.js?v=202611261709';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -180,7 +180,7 @@ async function carregar() {
   const [r1, rc, rs, rm, rnp, rp, rrv, rcm] = await Promise.all([
     sb.from('subscribers_status').select('*').order('payment_due_date'),
     sb.from('type_costs').select('*').order('type'),
-    sb.from('app_settings').select('*').eq('key', 'whatsapp_template'),
+    sb.from('app_settings').select('*').in('key', ['whatsapp_template', 'whatsapp_thanks']),
     sb.from('payment_methods').select('name,sort_order').order('sort_order').order('name'),
     sb.from('renewals').select('id,subscriber_id,payment_date,period_start,period_end,value,commission,payment_method,notes').eq('paid', false).order('payment_date'),
     sb.from('renewals').select('payment_date,value,commission,paid,payment_method').gte('payment_date', somaMeses(hojeISO().slice(0, 8) + '01', -11)),
@@ -190,7 +190,9 @@ async function carregar() {
   S.erroCustos = rc.error ? rc.error.message : null;
   S.metodos = rm.error ? [] : rm.data.map((m) => m.name);
   S.custos = rc.error ? [] : rc.data;
-  S.waTemplate = (!rs.error && rs.data[0]?.value) || 'Olá {owner}! A sua subscrição {id} vence a {data} (daqui a {dias} dias). Valor da renovação: {valor}. Obrigado!';
+  const def = (k) => (!rs.error && rs.data.find((x) => x.key === k)?.value) || null;
+  S.waTemplate = def('whatsapp_template') || 'Olá {owner}! A sua subscrição {id} vence a {data} (daqui a {dias} dias). Valor da renovação: {valor}. Obrigado!';
+  S.waObrigado = def('whatsapp_thanks') || OBRIGADO_DEFAULT;
   if (r1.error) {
     toast('Erro a carregar subscritores: ' + r1.error.message, true);
     renderConfig();
@@ -461,9 +463,9 @@ document.addEventListener('click', (e) => {
       paid: true, payment_date: f.get('payment_date'), payment_method: f.get('method') || r.payment_method || null, value: Number(f.get('value')) || 0,
     }).eq('id', r.id);
     if (error) return toast('Erro: ' + error.message, true);
-    fecharModal();
     toast(`Pagamento de ${s.code} marcado como pago.`);
     carregar();
+    abrirObrigado(s, { ...r, value: Number(f.get('value')) || 0, payment_date: f.get('payment_date'), payment_method: f.get('method') || r.payment_method || '' });
   });
 });
 
@@ -1006,11 +1008,13 @@ async function abrirSub(id, opc = {}) {
       ${HIST.map((r) => `<tr><td data-label="Data">${fmtData(r.payment_date)}</td><td data-label="Período">${fmtData(r.period_start)} → ${fmtData(r.period_end)}</td>
         <td class="num" data-label="Value">${eur(r.value)}</td><td class="num" data-label="Commission">${eur(r.commission)}</td><td data-label="Método">${esc(r.payment_method || '—')}</td>
         <td data-label="Pago">${r.paid ? 'Sim' : '<span class="badge a_terminar">Não</span>'}</td><td data-label="Notas">${esc(r.notes || '')}</td>
-        <td class="c-acoes"><div class="acoes"><button class="btn sm ghost" type="button" data-edit-pag="${r.id}">Editar</button><button class="btn sm ghost danger" type="button" data-del-pag="${r.id}">Apagar</button></div></td></tr>`).join('')}
+        <td class="c-acoes"><div class="acoes">${r.paid ? `<button class="btn sm wa" type="button" data-obrigado-pag="${r.id}">Agradecer</button>` : ''}<button class="btn sm ghost" type="button" data-edit-pag="${r.id}">Editar</button><button class="btn sm ghost danger" type="button" data-del-pag="${r.id}">Apagar</button></div></td></tr>`).join('')}
     </tbody></table></div>`;
     h.addEventListener('click', async (e) => {
       const ed = e.target.closest('[data-edit-pag]'), del = e.target.closest('[data-del-pag]');
       if (ed) return abrirPagamento(s, HIST.find((r) => r.id === ed.dataset.editPag));
+      const ob = e.target.closest('[data-obrigado-pag]');
+      if (ob) return abrirObrigado(s, HIST.find((r) => r.id === ob.dataset.obrigadoPag), 'Agradecer');
       if (del) {
         const r = HIST.find((x) => x.id === del.dataset.delPag);
         const ok = await confirmar('Apagar pagamento', `Apagar o pagamento de <b>${fmtData(r.payment_date)}</b> (${fmtData(r.period_start)} → ${fmtData(r.period_end)}, ${eur(r.value)}) do histórico de <b>${esc(s.code)}</b>?<br><span class="muted small">O PaymentDueDate do subscritor não é alterado. Terás alguns segundos para desfazer.</span>`, 'Apagar');
@@ -1195,9 +1199,10 @@ function abrirRenovar(id) {
       p_method: f.get('method') || null,
     });
     if (error) { e.target.disabled = false; return toast('Erro ao renovar: ' + error.message, true); }
-    fecharModal();
     toast(`${s.code} renovado — próximo pagamento a ${fmtData(novo)}.`);
     carregar();
+    if (f.get('paid')) abrirObrigado(s, { value: Number(f.get('value')) || 0, period_start: f.get('start'), period_end: novo, payment_date: f.get('payment_date'), payment_method: f.get('method') || '' }, 'Renovado');
+    else fecharModal();
   });
 }
 
@@ -1414,6 +1419,7 @@ $('#btn-importar').addEventListener('click', async (e) => {
 function renderConfig() {
   renderMetodos();
   if (document.activeElement !== $('#wa-template')) { $('#wa-template').value = S.waTemplate; previewWA(); }
+  if (document.activeElement !== $('#ob-template')) { $('#ob-template').value = S.waObrigado; previewObrigado(); }
   const cont = (t) => S.subs.filter((s) => s.type === t).length;
   if (S.erroCustos) {
     $('#tabela-custos tbody').innerHTML = `<tr><td colspan="4" class="erro" style="white-space:normal">Não consegui ler os custos: ${esc(S.erroCustos)}.<br>
@@ -1491,6 +1497,28 @@ $('#btn-add-metodo').addEventListener('click', async () => {
   carregar();
 });
 
+// ---------------------------------------------------------------- mensagem de agradecimento (depois do pagamento)
+const OBRIGADO_DEFAULT = 'Olá {owner}! Recebemos o seu pagamento de {valor}. Obrigado por continuar connosco! 🙏 A subscrição {id} fica ativa até {ate}.';
+function mensagemObrigado(s, r, tpl = S.waObrigado) {
+  const v = { owner: s.owner || '', id: s.code, valor: eur(r.value), ate: fmtData(r.period_end), inicio: fmtData(r.period_start),
+    data: fmtData(r.payment_date), metodo: r.payment_method || '', type: s.type || '', hw: s.hw || '' };
+  return tpl.replace(/\{(\w+)\}/g, (m, k) => (k in v ? String(v[k]) : m));
+}
+/** Janela com a mensagem de agradecimento pronta a copiar */
+function abrirObrigado(s, r, titulo2 = 'Pagamento registado') {
+  const msg = mensagemObrigado(s, r);
+  const corpo = abrirModal(`${titulo2} — ${titulo(s)}`, `
+    <div class="info">✅ ${esc(s.code)} pago até <b>${fmtData(r.period_end)}</b>. Queres agradecer ao cliente?</div>
+    <label style="margin-top:12px">Mensagem de agradecimento<textarea id="obrigado-msg" rows="5">${esc(msg)}</textarea></label>
+    <p class="muted small">Podes ajustar o texto antes de copiar. O modelo muda-se em Configuração.</p>
+    <div class="row end"><button class="btn" data-close type="button">Fechar</button><button class="btn wa" id="btn-copiar-obrigado" type="button">Copiar mensagem</button></div>`);
+  $('#btn-copiar-obrigado', corpo).addEventListener('click', async () => {
+    const ta = $('#obrigado-msg', corpo);
+    try { await navigator.clipboard.writeText(ta.value); fecharModal(); toast('Mensagem de agradecimento copiada — cola no WhatsApp.'); }
+    catch { ta.focus(); ta.select(); toast('Seleciona o texto e copia (Ctrl+C / partilhar).'); }
+  });
+}
+
 // ---------------------------------------------------------------- mensagem de aviso (WhatsApp)
 function mensagemWA(s, tpl = S.waTemplate) {
   const v = { owner: s.owner || '', id: s.code, data: fmtData(s.payment_due_date), dias: s.days_left ?? '', valor: eur(s.value), type: s.type || '', hw: s.hw || '' };
@@ -1530,6 +1558,19 @@ function previewWA() {
   $('#wa-preview').textContent = mensagemWA(ex, $('#wa-template').value);
 }
 $('#wa-template').addEventListener('input', previewWA);
+function previewObrigado() {
+  const s = S.subs[0] || { code: 'S-001', owner: 'Ana Silva', type: 'C', hw: 'Router' };
+  $('#ob-preview').textContent = mensagemObrigado(s, { value: s.value ?? 120, period_start: hojeISO(), period_end: somaMeses(hojeISO(), 6), payment_date: hojeISO(), payment_method: 'MBW/AB' }, $('#ob-template').value);
+}
+$('#ob-template').addEventListener('input', previewObrigado);
+$('#btn-ob-guardar').addEventListener('click', async () => {
+  const value = $('#ob-template').value.trim();
+  if (!value) return toast('A mensagem não pode estar vazia.', true);
+  const { error } = await sb.from('app_settings').upsert({ key: 'whatsapp_thanks', value, updated_at: new Date().toISOString() });
+  if (error) return toast('Erro ao guardar: ' + error.message, true);
+  S.waObrigado = value;
+  toast('Mensagem de agradecimento guardada.');
+});
 $('#btn-wa-guardar').addEventListener('click', async () => {
   const value = $('#wa-template').value.trim();
   if (!value) return toast('A mensagem não pode estar vazia.', true);
@@ -1579,7 +1620,7 @@ function detalhesAud(r) {
     case 'ligar': return `Mantido ligado com o pagamento em atraso${d.keep_active_until?.[1] ? ` até <b>${fmtData(d.keep_active_until[1])}</b>` : ' (sem prazo)'}`;
     case 'desligar': return 'Passou a desligado';
     case 'config': {
-      const alvo = r.entity === 'type_cost' ? `Custo do Type <b>${esc(r.record_id)}</b>` : r.entity === 'payment_method' ? `Método de pagamento <b>${esc(r.record_id)}</b>` : r.entity === 'reseller' ? `Revendedor <b>${esc(r.record_id)}</b>` : `Definição <b>${r.record_id === 'whatsapp_template' ? 'mensagem de WhatsApp' : esc(r.record_id)}</b>`;
+      const alvo = r.entity === 'type_cost' ? `Custo do Type <b>${esc(r.record_id)}</b>` : r.entity === 'payment_method' ? `Método de pagamento <b>${esc(r.record_id)}</b>` : r.entity === 'reseller' ? `Revendedor <b>${esc(r.record_id)}</b>` : `Definição <b>${r.record_id === 'whatsapp_template' ? 'mensagem de aviso' : r.record_id === 'whatsapp_thanks' ? 'mensagem de agradecimento' : esc(r.record_id)}</b>`;
       if (d.op === 'criar') return `${alvo} criado(a): ${lista(d.novo || {})}`;
       if (d.op === 'apagar') return `${alvo} apagado(a)`;
       return `${alvo}<br>${difs(d['alterações'] || {})}`;

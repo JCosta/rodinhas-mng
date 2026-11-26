@@ -232,6 +232,7 @@ code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 1
 .prog .p-warn { background: var(--late); }
 .prog .p-bad { background: var(--bad); }
 .item .dias .prog { margin-left: auto; width: 70px; }
+.dias.u1 .prog, .dias.u2 .prog, .dias.u3 .prog { display: none; }   /* a cor de urgência já diz o mesmo */
 
 /* Avatar com iniciais */
 .avatar { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; margin-right: 8px; vertical-align: middle;
