@@ -7,6 +7,9 @@ export const SUPABASE_KEY = 'sb_publishable_a6_YtBlnmqnal7XGoVZsGw_J8tDE6ch';
 // Minutos sem atividade até a sessão terminar automaticamente (0 = nunca)
 export const SESSAO_MINUTOS = 30;
 
+// Duração máxima de uma sessão, mesmo com atividade (horas). Depois pede password + 2FA de novo.
+export const SESSAO_MAX_HORAS = 8;
+
 // Dias de antecedência para considerar uma avença "a terminar"
 export const DIAS_AVISO = 30;
 

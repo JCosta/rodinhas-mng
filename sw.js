@@ -1,8 +1,8 @@
 // Service worker mínimo: permite instalar a app e abri-la sem rede (mostra a última versão guardada).
 // Ficheiros da app: rede primeiro (sempre a versão mais recente), cache como recurso.
 // Pedidos ao Supabase e a outros domínios nunca passam pela cache.
-const CACHE = 'rodinhas-202611261709';
-const BASE = ['./', './index.html', './styles.css', './app.js', './config.js', './manifest.webmanifest', './icons/icon-192.png'];
+const CACHE = 'rodinhas-202611262350';
+const BASE = ['./', './index.html', './styles.css', './app.js', './config.js', './theme.js', './vendor/supabase-js-2.119.2.mjs', './manifest.webmanifest', './icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(BASE)).then(() => self.skipWaiting()));

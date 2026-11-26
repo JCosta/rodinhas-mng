@@ -1,5 +1,5 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS } from './config.js?v=202611261709';
+import { createClient } from './vendor/supabase-js-2.119.2.mjs';   // alojado no próprio site (sem CDN de terceiros)
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS, SESSAO_MAX_HORAS } from './config.js?v=202611262350';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -134,23 +134,89 @@ function confirmar(tit, texto, rotulo = 'Confirmar') {
   });
 }
 
-// ---------------------------------------------------------------- auth
+// ---------------------------------------------------------------- auth (password + 2FA obrigatória)
 let carregado = false;
-function mostrar(session) {
-  $('#login-view').classList.toggle('hidden', !!session);
-  $('#app-view').classList.toggle('hidden', !session);
-  if (session) {
+let mfaFactorId = null;
+const ecras = (qual) => {   // 'login' | 'enroll' | 'challenge' | 'app'
+  $('#login-view').classList.toggle('hidden', qual === 'app');
+  $('#app-view').classList.toggle('hidden', qual !== 'app');
+  $('#login-form').classList.toggle('hidden', qual !== 'login');
+  $('#mfa-enroll').classList.toggle('hidden', qual !== 'enroll');
+  $('#mfa-challenge').classList.toggle('hidden', qual !== 'challenge');
+  const foco = { login: '#login-form [name=email]', enroll: '#mfa-enroll [name=code]', challenge: '#mfa-challenge [name=code]' }[qual];
+  if (foco) setTimeout(() => $(foco)?.focus(), 50);
+};
+
+let aVerificar = false;
+async function mostrar(session) {
+  if (!session) {
+    carregado = false; S.subs = []; mfaFactorId = null;
+    ecras('login');
+    return;
+  }
+  if (aVerificar) return;
+  aVerificar = true;
+  try {
+    const { data: st, error: eSt } = await sb.rpc('admin_status');
+    if (eSt || !st?.admin) {
+      await sb.auth.signOut();
+      $('#login-erro').textContent = eSt ? 'Erro a verificar a conta: ' + eSt.message : 'Esta conta não tem acesso de administrador.';
+      return;
+    }
+    if (st.require_mfa) {
+      const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aal?.currentLevel !== 'aal2') {
+        const { data: fs } = await sb.auth.mfa.listFactors();
+        const verificado = (fs?.totp || []).find((f) => f.status === 'verified');
+        if (verificado) { mfaFactorId = verificado.id; ecras('challenge'); }
+        else await iniciarAtivacaoMfa(fs);
+        return;
+      }
+    }
+    if (!lerLS('sessao.inicio', 0)) gravarLS('sessao.inicio', Date.now());
     $('#user-email').textContent = session.user.email;
+    ecras('app');
     if (!carregado) { carregado = true; esqueleto(); carregar(); }
-  } else {
-    carregado = false;
-    S.subs = [];
+  } finally {
+    aVerificar = false;
   }
 }
+
+async function iniciarAtivacaoMfa(fs) {
+  // remove tentativas de ativação anteriores que ficaram por confirmar
+  for (const f of (fs?.all || []).filter((x) => x.factor_type === 'totp' && x.status !== 'verified')) {
+    await sb.auth.mfa.unenroll({ factorId: f.id });
+  }
+  const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: `Rodinhas ${new Date().toISOString().slice(0, 16)}` });
+  if (error) { ecras('login'); $('#login-erro').textContent = 'Não foi possível iniciar o 2FA: ' + error.message; await sb.auth.signOut(); return; }
+  mfaFactorId = data.id;
+  $('#mfa-qr').src = data.totp.qr_code;
+  $('#mfa-secret').textContent = data.totp.secret;
+  ecras('enroll');
+}
+
+async function verificarCodigo(form, erroEl) {
+  const code = new FormData(form).get('code').trim();
+  erroEl.textContent = '';
+  if (!/^\d{6}$/.test(code)) { erroEl.textContent = 'O código tem 6 dígitos.'; return; }
+  const btn = $('button[type=submit]', form); btn.disabled = true;
+  const { error } = await sb.auth.mfa.challengeAndVerify({ factorId: mfaFactorId, code });
+  btn.disabled = false;
+  if (error) { erroEl.textContent = 'Código inválido ou expirado. Tenta o código seguinte.'; form.code.value = ''; form.code.focus(); return; }
+  form.reset();
+  gravarLS('sessao.inicio', Date.now());
+  gravarLS('sessao.ultima', Date.now());
+  const { data: { session } } = await sb.auth.getSession();
+  mostrar(session);
+}
+$('#mfa-enroll').addEventListener('submit', (e) => { e.preventDefault(); verificarCodigo(e.target, $('#mfa-enroll-erro')); });
+$('#mfa-challenge').addEventListener('submit', (e) => { e.preventDefault(); verificarCodigo(e.target, $('#mfa-erro')); });
+$$('[data-sair]').forEach((b) => b.addEventListener('click', () => sb.auth.signOut()));
 
 $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   gravarLS('sessao.ultima', Date.now());
+  gravarLS('sessao.inicio', 0);
   const f = new FormData(e.target);
   $('#login-erro').textContent = '';
   const { error } = await sb.auth.signInWithPassword({ email: f.get('email'), password: f.get('password') });
@@ -170,13 +236,8 @@ function esqueleto() {
 
 // ---------------------------------------------------------------- dados
 async function carregar() {
-  const { data: admin, error: eAdm } = await sb.rpc('is_admin');
-  if (eAdm || !admin) {
-    toast('Esta conta não tem acesso de administrador.', true);
-    await sb.auth.signOut();
-    $('#login-erro').textContent = 'Esta conta não tem acesso de administrador.';
-    return;
-  }
+  const { data: admin } = await sb.rpc('is_admin');
+  if (!admin) { const { data: { session } } = await sb.auth.getSession(); carregado = false; return mostrar(session); }
   const [r1, rc, rs, rm, rnp, rp, rrv, rcm] = await Promise.all([
     sb.from('subscribers_status').select('*').order('payment_due_date'),
     sb.from('type_costs').select('*').order('type'),
@@ -1664,8 +1725,9 @@ $('#a-mais').addEventListener('click', () => carregarAuditoria(false));
 // ---------------------------------------------------------------- sessão com tempo limite
 // Termina a sessão após SESSAO_MINUTOS sem atividade (partilhado entre separadores do browser).
 const SESSAO_MS = (Number(SESSAO_MINUTOS) || 0) * 60000;
+const SESSAO_MAX_MS = (Number(SESSAO_MAX_HORAS) || 0) * 3600000;
 const marcarAtividade = () => gravarLS('sessao.ultima', Date.now());
-if (SESSAO_MS > 0) {
+if (SESSAO_MS > 0 || SESSAO_MAX_MS > 0) {
   let ult = 0;
   ['click', 'keydown', 'touchstart', 'scroll', 'mousemove'].forEach((ev) => document.addEventListener(ev, () => {
     if (Date.now() - ult > 15000) { ult = Date.now(); marcarAtividade(); }   // no máximo a cada 15 s
@@ -1673,7 +1735,14 @@ if (SESSAO_MS > 0) {
   const verificar = async () => {
     if ($('#app-view').classList.contains('hidden')) return;
     const ultima = Number(lerLS('sessao.ultima', 0)) || Date.now();
-    if (Date.now() - ultima > SESSAO_MS) {
+    const inicio = Number(lerLS('sessao.inicio', 0)) || Date.now();
+    if (SESSAO_MAX_MS > 0 && Date.now() - inicio > SESSAO_MAX_MS) {
+      await sb.auth.signOut({ scope: 'local' });
+      fecharModal();
+      $('#login-erro').textContent = `Sessão terminada: limite de ${SESSAO_MAX_HORAS} horas. Entra de novo.`;
+      return;
+    }
+    if (SESSAO_MS > 0 && Date.now() - ultima > SESSAO_MS) {
       await sb.auth.signOut();
       fecharModal();
       $('#login-erro').textContent = `Sessão terminada após ${SESSAO_MINUTOS} minutos sem atividade.`;

@@ -57,6 +57,13 @@ label.check input { width: auto; }
 .login-card { background: var(--card); padding: 28px; border-radius: var(--radius); width: 100%; max-width: 360px;
   display: flex; flex-direction: column; gap: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 
+/* 2FA */
+.mfa-qr { display: grid; place-items: center; background: #fff; border-radius: 10px; padding: 10px; border: 1px solid var(--line); }
+.mfa-qr img { width: 200px; height: 200px; image-rendering: pixelated; }
+.mfa-secret { display: block; word-break: break-all; margin-top: 6px; padding: 8px; font-size: 13px; letter-spacing: .05em; }
+.login-card input[name=code] { font-size: 22px; letter-spacing: .35em; text-align: center; font-variant-numeric: tabular-nums; }
+.login-card { max-width: 380px; }
+
 /* Topbar */
 .topbar { display: flex; align-items: center; gap: 20px; padding: 10px 24px; background: var(--card);
   border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
