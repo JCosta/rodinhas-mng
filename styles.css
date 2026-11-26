@@ -71,6 +71,10 @@ main { max-width: 1600px; margin: 0 auto; padding: 24px; }
 .kpi .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .kpi.warn .val { color: var(--warn); }
 .kpi.bad .val { color: var(--bad); }
+.kpi.late .val { color: #c2410c; }
+.kpi.off .val { color: var(--off); }
+.tabela tfoot td { font-weight: 650; border-top: 2px solid var(--line); }
+.meses .barra.neg { background: var(--bad); }
 
 /* Listas do painel */
 .item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
@@ -110,6 +114,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 24px; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .badge.ativo { color: var(--ok); background: var(--ok-bg); }
 .badge.a_terminar { color: var(--warn); background: var(--warn-bg); }
+.badge.em_atraso { color: #8a3b00; background: #ffe2cc; }
 .badge.desligado { color: var(--bad); background: var(--bad-bg); }
 .badge.arquivado { color: var(--off); background: var(--off-bg); }
 .badge.cancelado { color: var(--off); background: var(--off-bg); }
@@ -123,6 +128,16 @@ main { max-width: 1600px; margin: 0 auto; padding: 24px; }
 .row { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
 .row.end { justify-content: flex-end; }
 .info { background: var(--bg); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+
+/* Auditoria */
+.tabela-audit td:last-child { white-space: normal; min-width: 340px; font-size: 13px; }
+.badge.a-criar { color: var(--ok); background: var(--ok-bg); }
+.badge.a-editar { color: #1f5eff; background: #e8efff; }
+.badge.a-renovar { color: #6b21a8; background: #f3e8ff; }
+.badge.a-apagar, .badge.a-desligar { color: var(--bad); background: var(--bad-bg); }
+.badge.a-aviso { color: #128c4a; background: #ecfaf1; }
+.badge.a-ligar { color: #8a3b00; background: #ffe2cc; }
+.badge.a-config { color: var(--off); background: var(--off-bg); }
 
 /* Seleção */
 .tabela th.sel, .tabela td.sel { width: 32px; padding-right: 0; }

@@ -19,6 +19,7 @@ create table if not exists public.subscribers (
   hw                 text,                          -- "HW" (lista fixa definida na app)
   periodicity        text not null default 'semestral' check (periodicity in ('semestral','anual')),
   active             boolean not null default true, -- false = cancelou
+  keep_active        boolean not null default false, -- true = continua ligado apesar do pagamento em atraso
   notes              text,
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now(),
@@ -146,7 +147,8 @@ grant select on public.app_settings to service_role;
 
 -- ---------- Vista com estado e lucro calculados ----------
 -- security_invoker = true → a vista respeita o RLS de quem consulta
--- Estados: cancelado (manual) · arquivado (sem PaymentDueDate) · desligado (data passada)
+-- Estados: cancelado (manual) · arquivado (sem PaymentDueDate)
+--          · em_atraso (data passada mas mantido ligado) · desligado (data passada)
 --          · a_terminar (≤ 30 dias) · ativo
 -- Lucro anual = Value anual − Commission anual − custo mensal do Type × 12
 drop view if exists public.subscribers_status;
@@ -158,6 +160,8 @@ select
   case
     when not s.active                             then 'cancelado'
     when s.payment_due_date is null               then 'arquivado'
+    when s.payment_due_date <  current_date
+     and s.keep_active                            then 'em_atraso'
     when s.payment_due_date <  current_date       then 'desligado'
     when s.payment_due_date <= current_date + 30  then 'a_terminar'
     else 'ativo'
@@ -220,20 +224,160 @@ begin
   insert into public.renewals (subscriber_id, payment_date, period_start, period_end, value, commission, paid, notes)
   values (s.id, v_dt, v_ini, v_fim, coalesce(p_value, s.value), coalesce(p_commission, s.commission), p_paid, p_notes);
 
+  perform set_config('app.in_renew', '1', true);   -- o log de auditoria regista só a renovação
   update public.subscribers
      set payment_due_date  = v_fim,
          last_payment_date = case when p_paid then v_dt else last_payment_date end,
          value             = case when p_months is null then coalesce(p_value, value) else value end,
          commission        = case when p_months is null then coalesce(p_commission, commission) else commission end,
+         keep_active       = false,
          active            = true
    where id = s.id
   returning * into s;
+  perform set_config('app.in_renew', '', true);
 
   return s;
 end $$;
 
 revoke all on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date, integer) from public, anon;
 grant execute on function public.renew_subscriber(uuid, numeric, numeric, boolean, text, date, date, integer) to authenticated;
+
+-- ---------- Log de auditoria ----------
+-- Registado por triggers na base de dados: não depende da app e não pode ser alterado
+-- nem apagado pelos utilizadores (só leitura para admins).
+create table if not exists public.audit_log (
+  id          bigint generated always as identity primary key,
+  at          timestamptz not null default now(),
+  user_id     uuid,
+  user_email  text,
+  action      text not null,     -- criar · editar · apagar · renovar · aviso · ligar · desligar · config
+  entity      text not null,     -- subscriber · renewal · type_cost · setting
+  record_id   text,
+  code        text,              -- ID do subscritor (quando aplicável)
+  details     jsonb              -- alterações / dados relevantes
+);
+create index if not exists audit_log_at_idx on public.audit_log (at desc);
+create index if not exists audit_log_code_idx on public.audit_log (code);
+
+alter table public.audit_log enable row level security;
+drop policy if exists "audit_log: admins leem" on public.audit_log;
+create policy "audit_log: admins leem" on public.audit_log
+  for select to authenticated
+  using ((select public.is_admin()));
+revoke all on public.audit_log from anon, authenticated;
+grant select on public.audit_log to authenticated, service_role;
+
+-- Quem fez a ação (a partir do token do Supabase)
+create or replace function public.audit_actor(out uid uuid, out email text)
+language sql stable
+set search_path = public
+as $$
+  select (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid,
+         nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'email'
+$$;
+
+-- Diferenças entre duas linhas: {campo: [antes, depois]}
+create or replace function public.audit_diff(o jsonb, n jsonb)
+returns jsonb language sql immutable as $$
+  select coalesce(jsonb_object_agg(k, jsonb_build_array(o -> k, n -> k)), '{}'::jsonb)
+  from jsonb_object_keys(n) k
+  where k not in ('updated_at', 'created_at') and (o -> k) is distinct from (n -> k)
+$$;
+
+create or replace function public.audit_write(p_action text, p_entity text, p_record text, p_code text, p_details jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare a record;
+begin
+  select * into a from public.audit_actor();
+  insert into public.audit_log (user_id, user_email, action, entity, record_id, code, details)
+  values (a.uid, a.email, p_action, p_entity, p_record, p_code, p_details);
+end $$;
+revoke all on function public.audit_write(text, text, text, text, jsonb) from public, anon, authenticated;
+
+-- Subscritores
+create or replace function public.audit_subscribers()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare d jsonb; act text;
+begin
+  if tg_op = 'INSERT' then
+    perform public.audit_write('criar', 'subscriber', new.id::text, new.code,
+      to_jsonb(new) - 'user_id' - 'created_at' - 'updated_at' - 'id');
+  elsif tg_op = 'DELETE' then
+    perform public.audit_write('apagar', 'subscriber', old.id::text, old.code,
+      to_jsonb(old) - 'user_id' - 'created_at' - 'updated_at' - 'id');
+  else
+    -- a renovação já fica registada pela tabela renewals
+    if current_setting('app.in_renew', true) = '1' then return new; end if;
+    d := public.audit_diff(to_jsonb(old), to_jsonb(new));
+    if d = '{}'::jsonb then return new; end if;
+    act := case
+      when d ?& array['last_notified_at'] and (select count(*) from jsonb_object_keys(d)) = 1 then 'aviso'
+      when d ? 'keep_active' and (select count(*) from jsonb_object_keys(d)) = 1 then
+        case when new.keep_active then 'ligar' else 'desligar' end
+      else 'editar' end;
+    perform public.audit_write(act, 'subscriber', new.id::text, new.code, d);
+  end if;
+  return coalesce(new, old);
+end $$;
+
+drop trigger if exists audit_subscribers on public.subscribers;
+create trigger audit_subscribers after insert or update or delete on public.subscribers
+  for each row execute function public.audit_subscribers();
+
+-- Renovações (registo de pagamento)
+create or replace function public.audit_renewals()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare c text;
+begin
+  select code into c from public.subscribers where id = new.subscriber_id;
+  perform public.audit_write('renovar', 'renewal', new.id::text, c,
+    jsonb_build_object('payment_date', new.payment_date, 'period_start', new.period_start, 'period_end', new.period_end,
+                       'value', new.value, 'commission', new.commission, 'paid', new.paid, 'notes', new.notes));
+  return new;
+end $$;
+
+drop trigger if exists audit_renewals on public.renewals;
+create trigger audit_renewals after insert on public.renewals
+  for each row execute function public.audit_renewals();
+
+-- Configuração: custos por Type e definições
+create or replace function public.audit_config()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare ent text := case tg_table_name when 'type_costs' then 'type_cost' else 'setting' end;
+        rid text;
+begin
+  rid := coalesce(to_jsonb(new), to_jsonb(old)) ->> case when tg_table_name = 'type_costs' then 'type' else 'key' end;
+  if tg_op = 'UPDATE' and public.audit_diff(to_jsonb(old), to_jsonb(new)) = '{}'::jsonb then return new; end if;
+  perform public.audit_write('config', ent, rid, null,
+    case tg_op
+      when 'INSERT' then jsonb_build_object('op', 'criar', 'novo', to_jsonb(new) - 'updated_at')
+      when 'DELETE' then jsonb_build_object('op', 'apagar', 'antigo', to_jsonb(old) - 'updated_at')
+      else jsonb_build_object('op', 'editar', 'alterações', public.audit_diff(to_jsonb(old), to_jsonb(new))) end);
+  return coalesce(new, old);
+end $$;
+
+drop trigger if exists audit_type_costs on public.type_costs;
+create trigger audit_type_costs after insert or update or delete on public.type_costs
+  for each row execute function public.audit_config();
+drop trigger if exists audit_app_settings on public.app_settings;
+create trigger audit_app_settings after insert or update or delete on public.app_settings
+  for each row execute function public.audit_config();
 
 -- =====================================================================
 -- DEPOIS de correr o script acima:

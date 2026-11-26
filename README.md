@@ -24,7 +24,11 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 
 **Lucro:** lucro anual = Value anual − Commission anual − custo mensal do Type × 12. Os custos por Type editam-se no separador **Configuração** da app ou na tabela `type_costs` do Supabase.
 
-**Estados:** *Ativo*, *A vencer* (≤ 30 dias), *Desligado* (PaymentDueDate já passou), *Arquivado* (sem PaymentDueDate; pode ser reativado) ou *Cancelado* (manual).
+**Estados:** *Ativo*, *A vencer* (≤ 30 dias), *Em atraso* (PaymentDueDate já passou mas mantido ligado — botão **Manter ligado**), *Desligado* (PaymentDueDate já passou), *Arquivado* (sem PaymentDueDate; pode ser reativado) ou *Cancelado* (manual).
+
+**Separadores:** *Painel* (só operacional: a vencer, em atraso, desligados, arquivados) · *Subscritores* · *Financeiro* (receita, comissões, custos por Type, lucro líquido mensal, previsão de 12 meses e pagamentos registados) · *Importar* · *Configuração* · *Auditoria*.
+
+**Auditoria:** todas as ações (criar, editar, renovar, apagar, avisos, manter ligado/desligar, configuração) ficam registadas na tabela `audit_log` por triggers da base de dados, com utilizador e data/hora. O registo é só de leitura: não pode ser alterado nem apagado a partir da app.
 
 **Aviso por WhatsApp:** nos subscritores a vencer, o botão **Copiar mensagem** copia um texto pronto a colar no WhatsApp do contacto e regista a data do aviso. O texto edita-se em **Configuração** (guardado na tabela `app_settings`).
 

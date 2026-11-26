@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Gestão de Avenças</title>
-  <link rel="stylesheet" href="styles.css?v=202611261321">
+  <link rel="stylesheet" href="styles.css?v=202611261356">
 </head>
 <body>
   <!-- Login -->
@@ -27,8 +27,10 @@
       <nav class="tabs">
         <button data-tab="painel" class="tab active">Painel</button>
         <button data-tab="clientes" class="tab">Subscritores</button>
+        <button data-tab="financeiro" class="tab">Financeiro</button>
         <button data-tab="importar" class="tab">Importar</button>
         <button data-tab="config" class="tab">Configuração</button>
+        <button data-tab="auditoria" class="tab">Auditoria</button>
       </nav>
       <div class="user"><span id="user-email" class="muted"></span><button id="logout" class="btn ghost sm">Sair</button></div>
     </header>
@@ -43,17 +45,37 @@
             <div id="lista-a-terminar"></div>
           </div>
           <div class="card">
-            <div class="card-head"><h2>Desligados</h2><span class="muted">PaymentDueDate já passou</span></div>
-            <div id="lista-desligados"></div>
+            <div class="card-head"><h2>Em atraso</h2><span class="muted">pagamento passado · continuam ligados</span></div>
+            <div id="lista-em-atraso"></div>
           </div>
         </div>
+        <div class="grid2">
+          <div class="card">
+            <div class="card-head"><h2>Desligados</h2><span class="muted">pagamento passado</span></div>
+            <div id="lista-desligados"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Arquivados</h2><span class="muted">sem PaymentDueDate · reativáveis</span></div>
+            <div id="lista-arquivados"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Financeiro -->
+      <section id="tab-financeiro" class="tab-panel hidden">
+        <div class="kpis" id="fin-kpis"></div>
         <div class="card">
-          <div class="card-head"><h2>Arquivados</h2><span class="muted">sem PaymentDueDate · podem ser reativados a qualquer altura</span></div>
-          <div id="lista-arquivados"></div>
+          <div class="card-head"><h2>Por Type</h2><span class="muted">valores mensais médios dos subscritores ligados</span></div>
+          <div class="scroll" style="border:none;max-height:none"><table class="tabela" id="fin-types"></table></div>
         </div>
         <div class="card">
-          <div class="card-head"><h2>Renovações nos próximos 12 meses</h2><span class="muted">valor bruto a receber por mês</span></div>
-          <div id="meses" class="meses"></div>
+          <div class="card-head"><h2>Previsão dos próximos 12 meses</h2><span class="muted">pelas datas de renovação · assume que todos os ligados renovam</span></div>
+          <div id="fin-meses" class="meses"></div>
+          <div class="scroll" style="border:none;max-height:none;margin-top:14px"><table class="tabela" id="fin-previsao"></table></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Pagamentos registados</h2><span class="muted">últimos 12 meses · pelas renovações registadas na app</span></div>
+          <div class="scroll" style="border:none;max-height:none"><table class="tabela" id="fin-historico"></table></div>
         </div>
       </section>
 
@@ -65,6 +87,7 @@
             <option value="">Todos os estados</option>
             <option value="ativo">Ativo</option>
             <option value="a_terminar">A vencer</option>
+            <option value="em_atraso">Em atraso</option>
             <option value="desligado">Desligado</option>
             <option value="arquivado">Arquivado</option>
             <option value="cancelado">Cancelado</option>
@@ -160,6 +183,33 @@
           <div class="row"><button id="btn-wa-guardar" class="btn primary">Guardar mensagem</button></div>
         </div>
       </section>
+      <!-- Auditoria -->
+      <section id="tab-auditoria" class="tab-panel hidden">
+        <div class="toolbar">
+          <input id="a-pesquisa" type="search" placeholder="Pesquisar ID do subscritor ou utilizador…">
+          <select id="a-acao">
+            <option value="">Todas as ações</option>
+            <option value="criar">Criar</option>
+            <option value="editar">Editar</option>
+            <option value="renovar">Renovar</option>
+            <option value="apagar">Apagar</option>
+            <option value="aviso">Aviso copiado</option>
+            <option value="ligar">Manter ligado</option>
+            <option value="desligar">Desligar</option>
+            <option value="config">Configuração</option>
+          </select>
+          <span class="spacer"></span>
+          <button id="a-atualizar" class="btn ghost">Atualizar</button>
+        </div>
+        <div class="card flush">
+          <table class="tabela tabela-audit">
+            <thead><tr><th>Data/hora</th><th>Utilizador</th><th>Ação</th><th>ID</th><th>Detalhes</th></tr></thead>
+            <tbody id="tbody-audit"></tbody>
+          </table>
+          <p id="audit-info" class="vazio"></p>
+        </div>
+        <div class="row" style="justify-content:center"><button id="a-mais" class="btn hidden">Carregar mais</button></div>
+      </section>
     </main>
   </div>
 
@@ -173,6 +223,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="app.js?v=202611261321"></script>
+  <script type="module" src="app.js?v=202611261356"></script>
 </body>
 </html>

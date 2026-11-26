@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261321';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261356';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -9,6 +9,7 @@ const S = {
   custos: [],
   waTemplate: '',
   sel: new Set(),   // ids selecionados na lista
+  pagamentos: [],   // renovações dos últimos 12 meses (separador Financeiro)
   sort: { campo: 'payment_due_date', asc: true },
 };
 
@@ -38,7 +39,8 @@ function somaMeses(iso, meses) {
 const mesesDe = (p) => (p === 'anual' ? 12 : 6);
 const proximoVenc = (iso, p) => somaMeses(iso, mesesDe(p));
 
-const ESTADOS = { ativo: 'Ativo', a_terminar: 'A vencer', desligado: 'Desligado', arquivado: 'Arquivado', cancelado: 'Cancelado' };
+const ESTADOS = { ativo: 'Ativo', a_terminar: 'A vencer', em_atraso: 'Em atraso', desligado: 'Desligado', arquivado: 'Arquivado', cancelado: 'Cancelado' };
+const LIGADOS = ['ativo', 'a_terminar', 'em_atraso'];   // continuam a ter serviço (e custo)
 const badge = (e) => `<span class="badge ${e}">${ESTADOS[e] ?? e}</span>`;
 const PER = { semestral: 'Semestral', anual: 'Anual' };
 const titulo = (s) => s.owner ? `${s.code} · ${s.owner}` : s.code;
@@ -121,10 +123,11 @@ async function carregar() {
     $('#login-erro').textContent = 'Esta conta não tem acesso de administrador.';
     return;
   }
-  const [r1, rc, rs] = await Promise.all([
+  const [r1, rc, rs, rp] = await Promise.all([
     sb.from('subscribers_status').select('*').order('payment_due_date'),
     sb.from('type_costs').select('*').order('type'),
     sb.from('app_settings').select('*').eq('key', 'whatsapp_template'),
+    sb.from('renewals').select('payment_date,value,commission,paid').gte('payment_date', somaMeses(hojeISO().slice(0, 8) + '01', -11)),
   ]);
   S.erroCustos = rc.error ? rc.error.message : null;
   S.custos = rc.error ? [] : rc.data;
@@ -135,10 +138,12 @@ async function carregar() {
     return;
   }
   S.subs = r1.data;
+  S.pagamentos = rp.error ? [] : rp.data;
   preencherFiltros();
   renderConfig();
   renderPainel();
   renderLista();
+  renderFinanceiro();
 }
 
 function preencherFiltros() {
@@ -153,59 +158,127 @@ function preencherFiltros() {
 $$('.tab').forEach((b) => b.addEventListener('click', () => {
   $$('.tab').forEach((x) => x.classList.toggle('active', x === b));
   $$('.tab-panel').forEach((p) => p.classList.toggle('hidden', p.id !== 'tab-' + b.dataset.tab));
+  if (b.dataset.tab === 'auditoria') carregarAuditoria(true);
 }));
 
-// ---------------------------------------------------------------- painel
+// ---------------------------------------------------------------- painel (só operacional)
 function renderPainel() {
   const cs = S.subs;
-  const vivos = cs.filter((s) => s.status === 'ativo' || s.status === 'a_terminar');
-  const aTerminar = cs.filter((s) => s.status === 'a_terminar').sort((a, b) => a.days_left - b.days_left);
-  const desligados = cs.filter((s) => s.status === 'desligado').sort((a, b) => b.days_left - a.days_left);
-  const arquivados = cs.filter((s) => s.status === 'arquivado').sort((a, b) => String(a.code).localeCompare(String(b.code), 'pt', { numeric: true }));
-  const somaK = (arr, k) => arr.reduce((t, s) => t + Number(s[k] || 0), 0);
-  const bruto = somaK(vivos, 'value_year'), comissoes = somaK(vivos, 'commission_year'), custos = somaK(vivos, 'cost_year'), lucro = somaK(vivos, 'net_year');
-  const soma = (arr) => somaK(arr, 'value');
+  const por = (st) => cs.filter((s) => s.status === st);
+  const ligados = cs.filter((s) => LIGADOS.includes(s.status));
+  const aTerminar = por('a_terminar').sort((a, b) => a.days_left - b.days_left);
+  const emAtraso = por('em_atraso').sort((a, b) => a.days_left - b.days_left);      // mais atrasado primeiro
+  const desligados = por('desligado').sort((a, b) => b.days_left - a.days_left);    // mais recente primeiro
+  const arquivados = por('arquivado').sort((a, b) => String(a.code).localeCompare(String(b.code), 'pt', { numeric: true }));
 
   $('#kpis').innerHTML = `
-    <div class="kpi"><div class="lbl">Subscritores ativos</div><div class="val">${vivos.length}</div>
-      <div class="sub">${vivos.filter((s) => s.periodicity === 'semestral').length} semestrais · ${vivos.filter((s) => s.periodicity === 'anual').length} anuais</div></div>
-    <div class="kpi"><div class="lbl">Lucro líquido anual</div><div class="val">${eur(lucro)}</div>
-      <div class="sub" title="Receita bruta ${eur(bruto)} − comissões ${eur(comissoes)} − custos ${eur(custos)}">bruto ${eur(bruto)} · custos ${eur(custos)}</div></div>
-    <div class="kpi"><div class="lbl">Comissões anuais</div><div class="val">${eur(comissoes)}</div><div class="sub">avenças em vigor</div></div>
-    <div class="kpi warn"><div class="lbl">A vencer (${DIAS_AVISO} dias)</div><div class="val">${aTerminar.length}</div><div class="sub">${eur(soma(aTerminar))} a receber</div></div>
-    <div class="kpi bad"><div class="lbl">Desligados</div><div class="val">${desligados.length}</div><div class="sub">${arquivados.length} arquivado${arquivados.length === 1 ? '' : 's'}</div></div>`;
+    <div class="kpi"><div class="lbl">Ligados</div><div class="val">${ligados.length}</div>
+      <div class="sub">${ligados.filter((s) => s.periodicity === 'semestral').length} semestrais · ${ligados.filter((s) => s.periodicity === 'anual').length} anuais</div></div>
+    <div class="kpi warn"><div class="lbl">A vencer (${DIAS_AVISO} dias)</div><div class="val">${aTerminar.length}</div>
+      <div class="sub">${aTerminar.filter((s) => s.last_notified_at).length} já avisados</div></div>
+    <div class="kpi late"><div class="lbl">Em atraso</div><div class="val">${emAtraso.length}</div>
+      <div class="sub">${emAtraso.length ? `o mais antigo há ${-emAtraso[0].days_left} dias` : 'ligados sem pagamento'}</div></div>
+    <div class="kpi bad"><div class="lbl">Desligados</div><div class="val">${desligados.length}</div><div class="sub">pagamento passado</div></div>
+    <div class="kpi off"><div class="lbl">Arquivados</div><div class="val">${arquivados.length}</div><div class="sub">sem data</div></div>`;
 
   $('#aviso-dias').textContent = `próximos ${DIAS_AVISO} dias`;
   const item = (s, extra = '') => `<div class="item">
-      <div class="who"><b data-editar="${s.id}">${esc(titulo(s))}</b><span>${[s.type, s.hw, PER[s.periodicity], eur(s.value)].filter(Boolean).map(esc).join(' · ')} · ${s.payment_due_date ? 'vence ' + fmtData(s.payment_due_date) : 'sem data de pagamento'}</span></div>
+      <div class="who"><b data-editar="${s.id}">${esc(titulo(s))}</b><span>${[s.type, s.hw, PER[s.periodicity]].filter(Boolean).map(esc).join(' · ')} · ${s.payment_due_date ? (s.days_left < 0 ? 'venceu ' : 'vence ') + fmtData(s.payment_due_date) : 'sem data de pagamento'}</span></div>
       <div class="dias">${textoDias(s)}</div>${extra}
       <button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button></div>`;
+  const bManter = (s) => `<button class="btn sm ghost" data-manter="${s.id}" title="Continua com serviço apesar do pagamento em atraso">Manter ligado</button>`;
+  const bDesligar = (s) => `<button class="btn sm ghost danger" data-desligar="${s.id}" title="Passa para Desligados">Desligar</button>`;
   $('#lista-a-terminar').innerHTML = aTerminar.map((s) => item(s, botaoWA(s))).join('') || '<p class="vazio">Nada a vencer. 👌</p>';
-  $('#lista-desligados').innerHTML = desligados.map((s) => item(s)).join('') || '<p class="vazio">Nenhum desligado.</p>';
+  $('#lista-em-atraso').innerHTML = emAtraso.map((s) => item(s, botaoWA(s) + bDesligar(s))).join('') || '<p class="vazio">Ninguém em atraso.</p>';
+  $('#lista-desligados').innerHTML = desligados.map((s) => item(s, bManter(s))).join('') || '<p class="vazio">Nenhum desligado.</p>';
   $('#lista-arquivados').innerHTML = arquivados.map((s) => item(s)).join('') || '<p class="vazio">Nenhum arquivado.</p>';
+}
 
-  // Próximos 12 meses: valor a receber por mês (subscritores em vigor)
+// Manter ligado / Desligar (pagamento em atraso)
+document.addEventListener('click', async (e) => {
+  const m = e.target.closest('[data-manter]'), d = e.target.closest('[data-desligar]');
+  if (!m && !d) return;
+  const id = (m || d).dataset[m ? 'manter' : 'desligar'];
+  const s = S.subs.find((x) => x.id === id);
+  const { error } = await sb.from('subscribers').update({ keep_active: !!m }).eq('id', id);
+  if (error) return toast('Erro: ' + error.message, true);
+  toast(m ? `${s.code} mantido ligado (em atraso).` : `${s.code} desligado.`);
+  carregar();
+});
+
+// ---------------------------------------------------------------- financeiro
+function renderFinanceiro() {
+  const ligados = S.subs.filter((s) => LIGADOS.includes(s.status));
+  const somaK = (arr, k) => arr.reduce((t, s) => t + Number(s[k] || 0), 0);
+  const receitaM = somaK(ligados, 'value_year') / 12;
+  const comissoesM = somaK(ligados, 'commission_year') / 12;
+  const custosM = somaK(ligados, 'monthly_cost');
+  const liquidoM = receitaM - comissoesM - custosM;
+  const neg = (v) => (v < 0 ? ' style="color:var(--bad)"' : '');
+
+  $('#fin-kpis').innerHTML = `
+    <div class="kpi"><div class="lbl">Subscritores ligados</div><div class="val">${ligados.length}</div><div class="sub">inclui ${ligados.filter((s) => s.status === 'em_atraso').length} em atraso</div></div>
+    <div class="kpi"><div class="lbl">Receita mensal</div><div class="val">${eur(receitaM)}</div><div class="sub">${eur(receitaM * 12)} por ano</div></div>
+    <div class="kpi"><div class="lbl">Comissões mensais</div><div class="val">${eur(comissoesM)}</div><div class="sub">${eur(comissoesM * 12)} por ano</div></div>
+    <div class="kpi"><div class="lbl">Custos mensais</div><div class="val">${eur(custosM)}</div><div class="sub">${eur(custosM * 12)} por ano</div></div>
+    <div class="kpi"><div class="lbl">Lucro líquido mensal</div><div class="val"${neg(liquidoM)}>${eur(liquidoM)}</div><div class="sub">${eur(liquidoM * 12)} por ano</div></div>`;
+
+  // ---- por Type
+  const tipos = [...new Set(ligados.map((s) => s.type || '—'))].sort((a, b) => a.localeCompare(b, 'pt'));
+  const linhasT = tipos.map((t) => {
+    const g = ligados.filter((s) => (s.type || '—') === t);
+    const r = somaK(g, 'value_year') / 12, c = somaK(g, 'commission_year') / 12, k = somaK(g, 'monthly_cost');
+    return { t, n: g.length, unit: g[0]?.monthly_cost ?? 0, r, c, k, l: r - c - k, sem: g.some((s) => s.type && s.type_sem_custo) };
+  });
+  const tot = linhasT.reduce((a, x) => ({ n: a.n + x.n, r: a.r + x.r, c: a.c + x.c, k: a.k + x.k, l: a.l + x.l }), { n: 0, r: 0, c: 0, k: 0, l: 0 });
+  $('#fin-types').innerHTML = `<thead><tr><th>Type</th><th class="num">Subscritores</th><th class="num">Custo unitário/mês</th><th class="num">Receita/mês</th><th class="num">Comissões/mês</th><th class="num">Custos/mês</th><th class="num">Lucro líquido/mês</th></tr></thead>
+    <tbody>${linhasT.map((x) => `<tr><td><b>${esc(x.t)}</b>${x.sem ? ' <span title="Type sem custo definido em Configuração">⚠</span>' : ''}</td><td class="num">${x.n}</td><td class="num">${eur(x.unit)}</td>
+      <td class="num">${eur(x.r)}</td><td class="num">${eur(x.c)}</td><td class="num">${eur(x.k)}</td><td class="num ${x.l < 0 ? 'neg' : ''}">${eur(x.l)}</td></tr>`).join('') || '<tr><td colspan="7" class="vazio">Sem subscritores ligados.</td></tr>'}</tbody>
+    <tfoot><tr><td>Total</td><td class="num">${tot.n}</td><td></td><td class="num">${eur(tot.r)}</td><td class="num">${eur(tot.c)}</td><td class="num">${eur(tot.k)}</td><td class="num ${tot.l < 0 ? 'neg' : ''}">${eur(tot.l)}</td></tr></tfoot>`;
+
+  // ---- previsão 12 meses (pelas datas de renovação)
   const hoje = new Date();
   const meses = [];
   for (let i = 0; i < 12; i++) {
     const d = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
-    meses.push({ chave: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, rot: d.toLocaleDateString('pt-PT', { month: 'short' }).replace('.', ''), v: 0 });
+    meses.push({ chave: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, rot: d.toLocaleDateString('pt-PT', { month: 'short', year: '2-digit' }).replace('.', ''), n: 0, r: 0, c: 0, k: custosM });
   }
-  const limite = meses[11].chave;
-  for (const s of vivos) {
+  const limite = meses[11].chave, primeiro = meses[0].chave;
+  for (const s of ligados) {
     let venc = s.payment_due_date;
     if (!venc) continue;
     while (venc.slice(0, 7) <= limite) {
-      const m = meses.find((x) => x.chave === venc.slice(0, 7));
-      if (m) m.v += Number(s.value || 0);
+      const m = meses.find((x) => x.chave === (venc.slice(0, 7) < primeiro ? primeiro : venc.slice(0, 7)));   // atrasados contam no mês atual
+      m.n += 1; m.r += Number(s.value || 0); m.c += Number(s.commission || 0);
       venc = proximoVenc(venc, s.periodicity);
     }
   }
-  const max = Math.max(1, ...meses.map((m) => m.v));
-  $('#meses').innerHTML = meses.map((m) => `<div class="mes" title="${m.rot}: ${eur(m.v)}">
-      <span class="v">${m.v ? Math.round(m.v).toLocaleString('pt-PT') : ''}</span>
-      <div class="barra" style="height:${(m.v / max) * 110}px"></div>
+  meses.forEach((m) => { m.l = m.r - m.c - m.k; });
+  const max = Math.max(1, ...meses.map((m) => Math.abs(m.l)));
+  $('#fin-meses').innerHTML = meses.map((m) => `<div class="mes" title="${m.rot}: líquido ${eur(m.l)}">
+      <span class="v">${m.l ? Math.round(m.l).toLocaleString('pt-PT') : ''}</span>
+      <div class="barra ${m.l < 0 ? 'neg' : ''}" style="height:${(Math.abs(m.l) / max) * 110}px"></div>
       <span class="m">${m.rot}</span></div>`).join('');
+  const tp = meses.reduce((a, m) => ({ n: a.n + m.n, r: a.r + m.r, c: a.c + m.c, k: a.k + m.k, l: a.l + m.l }), { n: 0, r: 0, c: 0, k: 0, l: 0 });
+  $('#fin-previsao').innerHTML = `<thead><tr><th>Mês</th><th class="num">Renovações</th><th class="num">A receber</th><th class="num">Comissões</th><th class="num">Custos</th><th class="num">Líquido</th></tr></thead>
+    <tbody>${meses.map((m) => `<tr><td>${m.rot}</td><td class="num">${m.n}</td><td class="num">${eur(m.r)}</td><td class="num">${eur(m.c)}</td><td class="num">${eur(m.k)}</td><td class="num ${m.l < 0 ? 'neg' : ''}">${eur(m.l)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>12 meses</td><td class="num">${tp.n}</td><td class="num">${eur(tp.r)}</td><td class="num">${eur(tp.c)}</td><td class="num">${eur(tp.k)}</td><td class="num ${tp.l < 0 ? 'neg' : ''}">${eur(tp.l)}</td></tr></tfoot>`;
+
+  // ---- histórico de pagamentos registados
+  const hist = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+    hist.push({ chave: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, rot: d.toLocaleDateString('pt-PT', { month: 'short', year: '2-digit' }).replace('.', ''), n: 0, v: 0, c: 0, pend: 0 });
+  }
+  for (const p of S.pagamentos) {
+    const h = hist.find((x) => x.chave === String(p.payment_date).slice(0, 7));
+    if (!h) continue;
+    if (p.paid) { h.n += 1; h.v += Number(p.value || 0); h.c += Number(p.commission || 0); } else h.pend += Number(p.value || 0);
+  }
+  const th = hist.reduce((a, h) => ({ n: a.n + h.n, v: a.v + h.v, c: a.c + h.c, pend: a.pend + h.pend }), { n: 0, v: 0, c: 0, pend: 0 });
+  $('#fin-historico').innerHTML = `<thead><tr><th>Mês</th><th class="num">Pagamentos</th><th class="num">Recebido</th><th class="num">Comissões</th><th class="num">Recebido − comissões</th><th class="num">Registado como não pago</th></tr></thead>
+    <tbody>${hist.reverse().map((h) => `<tr><td>${h.rot}</td><td class="num">${h.n}</td><td class="num">${eur(h.v)}</td><td class="num">${eur(h.c)}</td><td class="num">${eur(h.v - h.c)}</td><td class="num">${h.pend ? eur(h.pend) : '—'}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>12 meses</td><td class="num">${th.n}</td><td class="num">${eur(th.v)}</td><td class="num">${eur(th.c)}</td><td class="num">${eur(th.v - th.c)}</td><td class="num">${th.pend ? eur(th.pend) : '—'}</td></tr></tfoot>`;
 }
 
 // ---------------------------------------------------------------- lista
@@ -242,7 +315,7 @@ function renderLista() {
       <td>${fmtData(s.payment_due_date)}</td>
       <td class="num">${s.status === 'cancelado' || s.days_left == null ? '—' : s.days_left}</td>
       <td>${badge(s.status)}</td>
-      <td><div class="acoes">${s.status === 'a_terminar' ? botaoWA(s) : ''}<button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button><button class="btn sm ghost" data-editar="${s.id}">Editar</button></div></td>
+      <td><div class="acoes">${s.status === 'a_terminar' || s.status === 'em_atraso' ? botaoWA(s) : ''}<button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button><button class="btn sm ghost" data-editar="${s.id}">Editar</button></div></td>
     </tr>`).join('');
   $('#vazio-clientes').classList.toggle('hidden', lista.length > 0);
   const visSel = lista.filter((s) => S.sel.has(s.id)).length;
@@ -329,11 +402,12 @@ async function abrirSub(id) {
       <label>Last Payment Date<input name="last_payment_date" type="date" value="${esc(v.last_payment_date)}"></label>
       <label>Payment Due Date<input name="payment_due_date" type="date" value="${esc(v.payment_due_date)}"></label>
       <label class="full">Notas<textarea name="notes">${esc(v.notes)}</textarea></label>
+      <label class="check full"><input type="checkbox" name="keep_active" ${v.keep_active ? 'checked' : ''}> Manter ligado mesmo com o pagamento em atraso</label>
       ${s ? `<label class="check full"><input type="checkbox" name="cancelado" ${s.active ? '' : 'checked'}> Cancelado (deixa de contar e de aparecer nos avisos)</label>` : ''}
     </form>
     ${s ? '<h3>Histórico de pagamentos</h3><div id="historico" class="muted">A carregar…</div>' : ''}
     <div class="row">
-      ${s ? '<button class="btn danger ghost" id="btn-apagar">Apagar</button>' : ''}
+      ${s ? '<button class="btn danger ghost" id="btn-apagar">Apagar</button><button class="btn ghost" id="btn-ver-audit">Ver auditoria</button>' : ''}
       <span class="spacer"></span>
       <button class="btn" data-close>Cancelar</button>
       <button class="btn primary" id="btn-guardar">Guardar</button>
@@ -364,6 +438,7 @@ async function abrirSub(id) {
       last_payment_date: t('last_payment_date'),
       payment_due_date: t('payment_due_date'),
       notes: t('notes'),
+      keep_active: !!f.get('keep_active'),
     };
     if (s) reg.active = !f.get('cancelado');
     const { error } = s ? await sb.from('subscribers').update(reg).eq('id', s.id) : await sb.from('subscribers').insert(reg);
@@ -377,6 +452,12 @@ async function abrirSub(id) {
   });
 
   if (!s) return;
+
+  $('#btn-ver-audit', corpo).addEventListener('click', () => {
+    fecharModal();
+    $('#a-pesquisa').value = s.code;
+    $('.tab[data-tab="auditoria"]').click();
+  });
 
   $('#btn-apagar', corpo).addEventListener('click', async () => {
     const ok = await confirmar('Apagar subscritor', `Apagar <b>${esc(titulo(s))}</b> e todo o histórico? Esta ação não pode ser desfeita.<br><span class="muted small">Se apenas deixou de pagar, marca-o como cancelado em vez de apagar.</span>`, 'Apagar');
@@ -771,6 +852,81 @@ $('#btn-wa-guardar').addEventListener('click', async () => {
   S.waTemplate = value;
   toast('Mensagem guardada.');
 });
+
+// ---------------------------------------------------------------- auditoria
+const AUD = { linhas: [], pagina: 0, tam: 200 };
+const ACOES = { criar: 'Criar', editar: 'Editar', renovar: 'Renovar', apagar: 'Apagar', aviso: 'Aviso copiado', ligar: 'Manter ligado', desligar: 'Desligar', config: 'Configuração' };
+const CAMPO = {
+  code: 'ID', payment_due_date: 'PaymentDueDate', last_payment_date: 'LastPaymentDate', value: 'Value', commission: 'Commission',
+  owner: 'Owner', type: 'Type', hw: 'HW', periodicity: 'Avença', active: 'Ativo', keep_active: 'Manter ligado',
+  notes: 'Notas', last_notified_at: 'Aviso copiado em', monthly_cost: 'Custo mensal',
+};
+function valorAud(k, v) {
+  if (v === null || v === undefined || v === '') return '—';
+  if (typeof v === 'boolean') return v ? 'sim' : 'não';
+  if (typeof v === 'number' || ['value', 'commission', 'monthly_cost'].includes(k)) return eur(v);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return fmtData(v);
+  const t = String(v);
+  return t.length > 80 ? t.slice(0, 77) + '…' : t;
+}
+function detalhesAud(r) {
+  const d = r.details || {};
+  const lista = (o) => Object.entries(o).filter(([, v]) => v !== null && v !== '' && v !== false)
+    .map(([k, v]) => `${esc(CAMPO[k] || k)}: <b>${esc(valorAud(k, v))}</b>`).join(' · ');
+  const difs = (o) => Object.entries(o).map(([k, [a, b]]) => `${esc(CAMPO[k] || k)}: ${esc(valorAud(k, a))} → <b>${esc(valorAud(k, b))}</b>`).join('<br>');
+  switch (r.action) {
+    case 'criar':
+    case 'apagar': {
+      const { active, keep_active, ...resto } = d;
+      return lista(resto);
+    }
+    case 'editar': return difs(d);
+    case 'renovar':
+      return `Pagamento a <b>${fmtData(d.payment_date)}</b> · período ${fmtData(d.period_start)} → <b>${fmtData(d.period_end)}</b> · Value <b>${eur(d.value)}</b> · Commission ${eur(d.commission)} · ${d.paid ? 'pago' : '<b>não pago</b>'}${d.notes ? ' · ' + esc(d.notes) : ''}`;
+    case 'aviso': return 'Mensagem de aviso copiada para o WhatsApp';
+    case 'ligar': return 'Mantido ligado com o pagamento em atraso';
+    case 'desligar': return 'Passou a desligado';
+    case 'config': {
+      const alvo = r.entity === 'type_cost' ? `Custo do Type <b>${esc(r.record_id)}</b>` : `Definição <b>${r.record_id === 'whatsapp_template' ? 'mensagem de WhatsApp' : esc(r.record_id)}</b>`;
+      if (d.op === 'criar') return `${alvo} criado(a): ${lista(d.novo || {})}`;
+      if (d.op === 'apagar') return `${alvo} apagado(a)`;
+      return `${alvo}<br>${difs(d['alterações'] || {})}`;
+    }
+    default: return esc(JSON.stringify(d));
+  }
+}
+async function carregarAuditoria(reiniciar) {
+  if (reiniciar) { AUD.linhas = []; AUD.pagina = 0; }
+  let q = sb.from('audit_log').select('*').order('at', { ascending: false }).range(AUD.pagina * AUD.tam, AUD.pagina * AUD.tam + AUD.tam - 1);
+  const acao = $('#a-acao').value, txt = $('#a-pesquisa').value.trim();
+  if (acao) q = q.eq('action', acao);
+  if (txt) q = q.or(`code.ilike.*${txt.replace(/[,()*]/g, ' ')}*,user_email.ilike.*${txt.replace(/[,()*]/g, ' ')}*`);
+  $('#audit-info').classList.remove('hidden');
+  $('#audit-info').textContent = 'A carregar…';
+  const { data, error } = await q;
+  if (error) {
+    $('#tbody-audit').innerHTML = '';
+    $('#audit-info').innerHTML = `<span class="erro">Não consegui ler a auditoria: ${esc(error.message)}. Confirma que correste <b>supabase/migrations/007_auditoria.sql</b>.</span>`;
+    return;
+  }
+  AUD.linhas.push(...data);
+  AUD.pagina += 1;
+  const fmtHora = (t) => new Date(t).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  $('#tbody-audit').innerHTML = AUD.linhas.map((r) => `<tr>
+      <td>${fmtHora(r.at)}</td>
+      <td>${esc(r.user_email || '—')}</td>
+      <td><span class="badge a-${r.action}">${ACOES[r.action] || esc(r.action)}</span></td>
+      <td>${r.code ? `<b>${esc(r.code)}</b>` : ''}</td>
+      <td>${detalhesAud(r)}</td></tr>`).join('');
+  $('#audit-info').textContent = AUD.linhas.length ? '' : 'Sem registos.';
+  $('#audit-info').classList.toggle('hidden', AUD.linhas.length > 0);
+  $('#a-mais').classList.toggle('hidden', data.length < AUD.tam);
+}
+let tAud;
+$('#a-pesquisa').addEventListener('input', () => { clearTimeout(tAud); tAud = setTimeout(() => carregarAuditoria(true), 300); });
+$('#a-acao').addEventListener('change', () => carregarAuditoria(true));
+$('#a-atualizar').addEventListener('click', () => carregarAuditoria(true));
+$('#a-mais').addEventListener('click', () => carregarAuditoria(false));
 
 // ---------------------------------------------------------------- arranque
 (async () => {

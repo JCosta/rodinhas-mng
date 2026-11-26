@@ -21,12 +21,13 @@ if (!res.ok) {
 }
 const todos = await res.json();
 const dias = Number(DIAS_AVISO);
-const desligados = todos.filter((s) => s.days_left != null && s.days_left < 0); // arquivados (sem data) ficam de fora
-const aVencer = todos.filter((s) => s.days_left >= 0 && s.days_left <= dias);
+const emAtraso = todos.filter((s) => s.status === 'em_atraso');   // ligados com pagamento passado
+const desligados = todos.filter((s) => s.status === 'desligado'); // arquivados (sem data) ficam de fora
+const aVencer = todos.filter((s) => s.days_left != null && s.days_left >= 0 && s.days_left <= dias);
 
-console.log(`Total: ${todos.length} · a vencer: ${aVencer.length} · desligados: ${desligados.length}`);
+console.log(`Total: ${todos.length} · a vencer: ${aVencer.length} · em atraso: ${emAtraso.length} · desligados: ${desligados.length}`);
 
-if (!aVencer.length && !desligados.length) {
+if (!aVencer.length && !emAtraso.length && !desligados.length) {
   console.log('Nada a avisar esta semana.');
   process.exit(0);
 }
@@ -48,6 +49,7 @@ const tabela = (lista) => `<table cellpadding="6" style="border-collapse:collaps
 const soma = (l) => eur(l.reduce((t, s) => t + Number(s.value || 0), 0));
 const html = `<div style="font-family:Arial,sans-serif;color:#1c2430">
   <h2 style="margin:0 0 12px">Avenças — resumo semanal</h2>
+  ${emAtraso.length ? `<h3 style="color:#c2410c">Em atraso — continuam ligados (${emAtraso.length})</h3>${tabela(emAtraso)}` : ''}
   ${desligados.length ? `<h3 style="color:#b42318">Desligados (${desligados.length} · ${soma(desligados)})</h3>${tabela(desligados)}` : ''}
   ${aVencer.length ? `<h3 style="color:#a15c00">A vencer nos próximos ${dias} dias (${aVencer.length} · ${soma(aVencer)})</h3>${tabela(aVencer)}` : ''}
 </div>`;
@@ -62,7 +64,7 @@ const transporter = nodemailer.createTransport({
 await transporter.sendMail({
   from: SMTP_USER,
   to: EMAIL_TO,
-  subject: `Avenças: ${aVencer.length} a vencer, ${desligados.length} desligados`,
+  subject: `Avenças: ${aVencer.length} a vencer, ${emAtraso.length} em atraso, ${desligados.length} desligados`,
   html,
 });
 console.log('Email enviado para', EMAIL_TO);
