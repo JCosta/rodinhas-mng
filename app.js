@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261422';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES } from './config.js?v=202611261507';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -331,19 +331,19 @@ function renderLista() {
   for (const id of [...S.sel]) if (!S.subs.some((s) => s.id === id)) S.sel.delete(id);
   $('#tbody-clientes').innerHTML = lista.map((s) => `<tr class="${S.sel.has(s.id) ? 'selecionado' : ''}"${estiloType(s.type)}>
       <td class="sel"><input type="checkbox" data-sel="${s.id}" ${S.sel.has(s.id) ? 'checked' : ''}></td>
-      <td><span class="nome" data-editar="${s.id}">${esc(s.code)}</span></td>
-      <td>${esc(s.owner || '')}</td>
-      <td>${chipType(s.type)}</td>
-      <td>${esc(s.hw || '')}</td>
-      <td>${PER[s.periodicity]}</td>
-      <td class="num">${eur(s.value)}</td>
-      <td class="num">${eur(s.commission)}</td>
-      <td class="num ${Number(s.net_year) < 0 ? 'neg' : ''}" title="custo ${eur(s.monthly_cost)}/mês${s.type_sem_custo && s.type ? ' — Type sem custo definido' : ''}">${eur(s.net_year)}${s.type_sem_custo && s.type ? ' ⚠' : ''}</td>
-      <td>${fmtData(s.last_payment_date)}</td>
-      <td>${fmtData(s.payment_due_date)}</td>
-      <td class="num">${s.status === 'cancelado' || s.days_left == null ? '—' : s.days_left}</td>
-      <td>${badge(s.status)}</td>
-      <td><div class="acoes">${s.status === 'a_terminar' || s.status === 'em_atraso' ? botaoWA(s) : ''}<button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button><button class="btn sm ghost" data-editar="${s.id}">Editar</button></div></td>
+      <td class="c-id"><span class="nome" data-editar="${s.id}">${esc(s.code)}</span></td>
+      <td class="c-owner" data-label="Owner">${esc(s.owner || '')}</td>
+      <td class="c-type" data-label="Type">${chipType(s.type)}</td>
+      <td data-label="HW">${esc(s.hw || '')}</td>
+      <td data-label="Avença">${PER[s.periodicity]}</td>
+      <td class="num" data-label="Value">${eur(s.value)}</td>
+      <td class="num" data-label="Commission">${eur(s.commission)}</td>
+      <td data-label="Lucro/ano" class="num ${Number(s.net_year) < 0 ? 'neg' : ''}" title="custo ${eur(s.monthly_cost)}/mês${s.type_sem_custo && s.type ? ' — Type sem custo definido' : ''}">${eur(s.net_year)}${s.type_sem_custo && s.type ? ' ⚠' : ''}</td>
+      <td data-label="Last Payment">${fmtData(s.last_payment_date)}</td>
+      <td data-label="Payment Due">${fmtData(s.payment_due_date)}</td>
+      <td class="num" data-label="Dias">${s.status === 'cancelado' || s.days_left == null ? '—' : s.days_left}</td>
+      <td class="c-estado" data-label="Estado">${badge(s.status)}</td>
+      <td class="c-acoes"><div class="acoes">${s.status === 'a_terminar' || s.status === 'em_atraso' ? botaoWA(s) : ''}<button class="btn sm" data-renovar="${s.id}">${s.status === 'arquivado' ? 'Reativar' : 'Renovar'}</button><button class="btn sm ghost" data-editar="${s.id}">Editar</button></div></td>
     </tr>`).join('');
   $('#vazio-clientes').classList.toggle('hidden', lista.length > 0);
   const visSel = lista.filter((s) => S.sel.has(s.id)).length;
@@ -970,11 +970,11 @@ async function carregarAuditoria(reiniciar) {
   AUD.pagina += 1;
   const fmtHora = (t) => new Date(t).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   $('#tbody-audit').innerHTML = AUD.linhas.map((r) => `<tr>
-      <td>${fmtHora(r.at)}</td>
-      <td>${esc(r.user_email || '—')}</td>
-      <td><span class="badge a-${r.action}">${ACOES[r.action] || esc(r.action)}</span></td>
-      <td>${r.code ? `<b>${esc(r.code)}</b>` : ''}</td>
-      <td>${detalhesAud(r)}</td></tr>`).join('');
+      <td data-label="Data/hora">${fmtHora(r.at)}</td>
+      <td data-label="Utilizador">${esc(r.user_email || '—')}</td>
+      <td data-label="Ação"><span class="badge a-${r.action}">${ACOES[r.action] || esc(r.action)}</span></td>
+      <td data-label="ID">${r.code ? `<b>${esc(r.code)}</b>` : '—'}</td>
+      <td class="c-det">${detalhesAud(r)}</td></tr>`).join('');
   $('#audit-info').textContent = AUD.linhas.length ? '' : 'Sem registos.';
   $('#audit-info').classList.toggle('hidden', AUD.linhas.length > 0);
   $('#a-mais').classList.toggle('hidden', data.length < AUD.tam);

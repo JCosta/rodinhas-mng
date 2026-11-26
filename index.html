@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Gestão de Avenças</title>
-  <link rel="stylesheet" href="styles.css?v=202611261422">
+  <link rel="stylesheet" href="styles.css?v=202611261507">
 </head>
 <body>
   <!-- Login -->
@@ -105,7 +105,7 @@
           <button id="btn-novo" class="btn primary">+ Novo subscritor</button>
         </div>
         <div class="card flush">
-          <table class="tabela">
+          <table class="tabela cartoes" id="tabela-subs">
             <thead><tr>
               <th class="sel"><input type="checkbox" id="sel-todos" title="Selecionar todos os visíveis"></th>
               <th data-sort="code">ID</th>
@@ -219,7 +219,7 @@
           <button id="a-atualizar" class="btn ghost">Atualizar</button>
         </div>
         <div class="card flush">
-          <table class="tabela tabela-audit">
+          <table class="tabela tabela-audit cartoes">
             <thead><tr><th>Data/hora</th><th>Utilizador</th><th>Ação</th><th>ID</th><th>Detalhes</th></tr></thead>
             <tbody id="tbody-audit"></tbody>
           </table>
@@ -240,6 +240,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="app.js?v=202611261422"></script>
+  <script type="module" src="app.js?v=202611261507"></script>
 </body>
 </html>
