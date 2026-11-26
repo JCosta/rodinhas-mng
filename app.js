@@ -120,13 +120,20 @@ async function carregar() {
     $('#login-erro').textContent = 'Esta conta não tem acesso de administrador.';
     return;
   }
-  const { data, error } = await sb.from('subscribers_status').select('*').order('payment_due_date');
-  if (error) { toast('Erro a carregar: ' + error.message, true); return; }
-  S.subs = data;
-  const rc = await sb.from('type_costs').select('*').order('type');
+  const [r1, rc, rs] = await Promise.all([
+    sb.from('subscribers_status').select('*').order('payment_due_date'),
+    sb.from('type_costs').select('*').order('type'),
+    sb.from('app_settings').select('*').eq('key', 'whatsapp_template'),
+  ]);
+  S.erroCustos = rc.error ? rc.error.message : null;
   S.custos = rc.error ? [] : rc.data;
-  const rs = await sb.from('app_settings').select('*').eq('key', 'whatsapp_template');
   S.waTemplate = (!rs.error && rs.data[0]?.value) || 'Olá {owner}! A sua subscrição {id} vence a {data} (daqui a {dias} dias). Valor da renovação: {valor}. Obrigado!';
+  if (r1.error) {
+    toast('Erro a carregar subscritores: ' + r1.error.message, true);
+    renderConfig();
+    return;
+  }
+  S.subs = r1.data;
   preencherFiltros();
   renderConfig();
   renderPainel();
@@ -632,6 +639,12 @@ $('#btn-importar').addEventListener('click', async (e) => {
 function renderConfig() {
   if (document.activeElement !== $('#wa-template')) { $('#wa-template').value = S.waTemplate; previewWA(); }
   const cont = (t) => S.subs.filter((s) => s.type === t).length;
+  if (S.erroCustos) {
+    $('#tabela-custos tbody').innerHTML = `<tr><td colspan="4" class="erro" style="white-space:normal">Não consegui ler os custos: ${esc(S.erroCustos)}.<br>
+      Confirma que correste <b>supabase/migrations/004_custos_type.sql</b> no SQL Editor do Supabase.</td></tr>`;
+    $('#aviso-tipos').innerHTML = '';
+    return;
+  }
   $('#tabela-custos tbody').innerHTML = S.custos.map((c) => `<tr>
       <td><b>${esc(c.type)}</b></td>
       <td class="num"><input type="number" step="0.01" min="0" value="${esc(c.monthly_cost)}" data-custo="${esc(c.type)}" style="max-width:110px;text-align:right"></td>
