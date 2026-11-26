@@ -359,6 +359,10 @@ function abrirRenovar(id) {
   const corpo = abrirModal(`Renovar — ${titulo(s)}`, `
     <div class="info" id="renov-info"></div>
     <form class="form" id="form-renovar" style="margin-top:14px">
+      <label class="full">Duração<select name="meses">
+        <option value="">Período normal (${mesesDe(s.periodicity)} meses)</option>
+        <option value="3">Reforço de 3 meses</option>
+        <option value="1">Reforço de 1 mês</option></select></label>
       <label>Value (€)<input name="value" type="number" step="0.01" min="0" value="${esc(s.value)}"></label>
       <label>Commission (€)<input name="commission" type="number" step="0.01" min="0" value="${esc(s.commission)}"></label>
       <label>Data do pagamento<input name="payment_date" type="date" value="${hoje}"></label>
@@ -368,15 +372,29 @@ function abrirRenovar(id) {
     </form>
     <div class="row end"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="btn-ok">Confirmar renovação</button></div>`);
   const form = $('#form-renovar', corpo);
-  let startManual = false;
+  let startManual = false, valorManual = false;
+  const meses = () => Number(form.meses.value) || mesesDe(s.periodicity);
   const atualizar = () => {
     if (!startManual) form.start.value = inicioAuto();
-    const novo = form.start.value ? proximoVenc(form.start.value, s.periodicity) : null;
-    $('#renov-info', corpo).innerHTML = `Avença <b>${PER[s.periodicity].toLowerCase()}</b>. Payment Due: <b>${s.payment_due_date ? fmtData(s.payment_due_date) : 'sem data'}</b> → <b>${novo ? fmtData(novo) : '—'}</b>` +
+    const novo = form.start.value ? somaMeses(form.start.value, meses()) : null;
+    const dur = form.meses.value ? `Reforço de <b>${meses()} ${meses() === 1 ? 'mês' : 'meses'}</b>` : `Avença <b>${PER[s.periodicity].toLowerCase()}</b>`;
+    $('#renov-info', corpo).innerHTML = `${dur}. Payment Due: <b>${s.payment_due_date ? fmtData(s.payment_due_date) : 'sem data'}</b> → <b>${novo ? fmtData(novo) : '—'}</b>` +
       (s.status === 'desligado' ? '<br><span class="muted small">Está desligado, por isso o novo período começa na data do pagamento.</span>' : '');
     return novo;
   };
   form.start.addEventListener('change', () => { startManual = true; atualizar(); });
+  // Valores proporcionais à duração escolhida (até serem editados à mão)
+  const arred = (v) => Math.round(v * 100) / 100;
+  form.value.addEventListener('input', () => { valorManual = true; });
+  form.commission.addEventListener('input', () => { valorManual = true; });
+  form.meses.addEventListener('change', () => {
+    if (!valorManual) {
+      const f = meses() / mesesDe(s.periodicity);
+      form.value.value = arred(Number(s.value) * f);
+      form.commission.value = arred(Number(s.commission) * f);
+    }
+    atualizar();
+  });
   form.payment_date.addEventListener('change', atualizar);
   atualizar();
 
@@ -393,6 +411,7 @@ function abrirRenovar(id) {
       p_notes: f.get('notes').trim() || null,
       p_payment_date: f.get('payment_date') || null,
       p_start: f.get('start'),
+      p_months: form.meses.value ? Number(form.meses.value) : null,
     });
     if (error) { e.target.disabled = false; return toast('Erro ao renovar: ' + error.message, true); }
     fecharModal();

@@ -23,7 +23,7 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 | — | `periodicity` | `semestral` (por defeito) ou `anual`. Define quanto avança a data ao renovar |
 
 **Estados:** *Ativo*, *A vencer* (≤ 30 dias), *Desligado* (sem PaymentDueDate ou com a data já passada) ou *Cancelado* (manual).
-**Renovar:** regista o pagamento no histórico (`renewals`) e avança o PaymentDueDate em 6 ou 12 meses. Num desligado, o novo período começa na data do pagamento (editável).
+**Renovar:** regista o pagamento no histórico (`renewals`) e avança o PaymentDueDate em 6 ou 12 meses. Num desligado, o novo período começa na data do pagamento (editável). Também é possível um **reforço de 1 ou 3 meses**, com valores proporcionais.
 
 **Atualizações de base de dados:** quem já correu o `schema.sql` antes deve correr os ficheiros em `supabase/migrations/` por ordem. O `schema.sql` já inclui tudo para instalações novas.
 
