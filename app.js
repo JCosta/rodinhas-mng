@@ -1,5 +1,5 @@
 import { createClient } from './vendor/supabase-js-2.119.2.mjs';   // alojado no próprio site (sem CDN de terceiros)
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS, SESSAO_MAX_HORAS } from './config.js?v=202611270958';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS, SESSAO_MAX_HORAS } from './config.js?v=202611271030';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -1048,6 +1048,23 @@ function campoHW(valor) {
   if (valor && !opcoes.includes(valor)) opcoes.push(valor);
   return `<select name="hw"><option value="">—</option>${opcoes.map((o) => `<option ${o === valor ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
 }
+/** Lista de Types: os definidos em Configuração + os já usados + "Outro…" para escrever um novo */
+function campoType(valor) {
+  const opcoes = [...new Set([...S.custos.map((c) => c.type), ...unicos('type'), ...(valor ? [valor] : [])])].sort((a, b) => a.localeCompare(b, 'pt'));
+  return `<select name="type" data-type-sel>
+      <option value="">— sem Type —</option>
+      ${opcoes.map((o) => `<option value="${esc(o)}" ${o === valor ? 'selected' : ''}>${esc(o)}${S.custos.some((c) => c.type === o) ? '' : ' (sem custo definido)'}</option>`).join('')}
+      <option value="__outro">Outro… (escrever)</option>
+    </select>
+    <input name="type_novo" class="hidden" placeholder="Novo Type" maxlength="40" style="margin-top:6px">`;
+}
+document.addEventListener('change', (e) => {
+  const sel = e.target.closest('[data-type-sel]');
+  if (!sel) return;
+  const novo = sel.parentElement.querySelector('[name=type_novo]');
+  novo.classList.toggle('hidden', sel.value !== '__outro');
+  if (sel.value === '__outro') novo.focus();
+});
 const datalist = (id, campo) => `<datalist id="${id}">${unicos(campo).map((o) => `<option value="${esc(o)}">`).join('')}</datalist>`;
 
 async function abrirSub(id, opc = {}) {
@@ -1058,7 +1075,7 @@ async function abrirSub(id, opc = {}) {
     <form class="form" id="form-sub">
       <label>ID *<input name="code" required value="${esc(v.code)}"></label>
       <label>Owner<input name="owner" list="dl-owner" value="${esc(v.owner)}">${datalist('dl-owner', 'owner')}</label>
-      <label>Type<input name="type" list="dl-type" value="${esc(v.type)}"><datalist id="dl-type">${[...new Set([...S.custos.map((c) => c.type), ...unicos('type')])].map((o) => `<option value="${esc(o)}">`).join('')}</datalist></label>
+      <label>Type${campoType(v.type)}</label>
       <label>HW${campoHW(v.hw)}</label>
       <label>Revendedor (recebe a comissão)<select name="reseller_id"><option value="">— nenhum —</option>${S.revend.filter((r) => r.active || r.id === v.reseller_id).map((r) => `<option value="${r.id}" ${r.id === v.reseller_id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label>
       <label>Avença<select name="periodicity">
@@ -1098,7 +1115,7 @@ async function abrirSub(id, opc = {}) {
     const reg = {
       code: t('code'),
       owner: t('owner'),
-      type: t('type'),
+      type: f.get('type') === '__outro' ? t('type_novo') : t('type'),
       hw: t('hw'),
       periodicity: f.get('periodicity'),
       value: Number(f.get('value')) || 0,
