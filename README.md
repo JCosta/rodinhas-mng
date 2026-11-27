@@ -26,6 +26,8 @@ Plataforma para gerir subscritores com avença semestral ou anual: quem está a 
 
 **Estados:** *Ativo*, *A vencer* (≤ 30 dias), *Em atraso* (PaymentDueDate já passou mas mantido ligado — botão **Manter ligado**), *Desligado* (PaymentDueDate já passou), *Arquivado* (sem PaymentDueDate; pode ser reativado) ou *Cancelado* (manual).
 
+**Fecho do mês:** no penúltimo e no último dia de cada mês, o cabeçalho do Painel mostra um aviso para apurar as contas (recebido no mês, comissões do mês, comissões por pagar e pagamentos por receber), com atalhos para o Financeiro e os Revendedores.
+
 **Painel — caixa 📌 Hoje:** as ações mais urgentes (prazo de tolerância a acabar, a vencer em ≤ 7 dias sem aviso, avisados há > 7 dias que não renovaram, em atraso há > 30 dias, pagamentos por receber). Os "A vencer" têm cor de urgência (vermelho ≤ 7 dias, laranja ≤ 15, amarelo ≤ 30) e a secção 💸 **Por receber** lista os pagamentos não pagos com botão **Marcar como pago**.
 
 **Manter ligado com prazo:** ao manter ligado um cliente em atraso escolhe-se até quando (7/15/30 dias, data ou sem prazo). Passado o prazo volta sozinho aos Desligados.

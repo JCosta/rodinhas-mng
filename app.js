@@ -1,5 +1,5 @@
 import { createClient } from './vendor/supabase-js-2.119.2.mjs';   // alojado no próprio site (sem CDN de terceiros)
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS, SESSAO_MAX_HORAS } from './config.js?v=202611270946';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS, SESSAO_MAX_HORAS } from './config.js?v=202611270954';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -408,7 +408,46 @@ function renderHero(n) {
     pill('a_terminar', '⏰', n.aTerminar, 'a vencer') +
     pill('em_atraso', '⚠️', n.emAtraso, 'em atraso') +
     pill('por_receber', '💸', n.porReceber, 'por receber');
+  renderFecho(agora);
 }
+
+// Aviso de fecho do mês: penúltimo e último dia
+function renderFecho(agora) {
+  const el = $('#hero-fecho');
+  const ultimo = new Date(agora.getFullYear(), agora.getMonth() + 1, 0).getDate();
+  const falta = ultimo - agora.getDate();   // 1 = penúltimo, 0 = último
+  if (falta > 1) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  const mes = hojeISO().slice(0, 7);
+  const nomeMes = agora.toLocaleDateString('pt-PT', { month: 'long' });
+  const pagosMes = S.pagamentos.filter((p) => p.paid && String(p.payment_date).slice(0, 7) === mes);
+  const recebido = pagosMes.reduce((t, p) => t + Number(p.value || 0), 0);
+  const comMes = pagosMes.reduce((t, p) => t + Number(p.commission || 0), 0);
+  const comPorPagar = S.comissoes.filter((c) => c.paid && !c.commission_paid);
+  const totComPorPagar = comPorPagar.reduce((t, c) => t + Number(c.commission || 0), 0);
+  const idsSubs = new Set(S.subs.map((x) => x.id));
+  const porReceber = S.naoPagos.filter((r) => idsSubs.has(r.subscriber_id)).length;   // igual ao destaque "por receber"
+  el.innerHTML = `
+    <div class="hf-titulo"><span class="hf-ico">📒</span><div>
+      <b>${falta === 0 ? 'Último dia do mês' : 'Penúltimo dia do mês'} — hora de apurar as contas de ${esc(nomeMes)}</b>
+      <span>Confirma os pagamentos recebidos, paga as comissões e fecha o mês.</span></div></div>
+    <div class="hf-numeros">
+      <div><small>Recebido em ${esc(nomeMes)}</small><b>${eur(recebido)}</b><small>${pagosMes.length} pagamento${pagosMes.length === 1 ? '' : 's'}</small></div>
+      <div><small>Comissões do mês</small><b>${eur(comMes)}</b><small>líquido ${eur(recebido - comMes)}</small></div>
+      <div class="${comPorPagar.length ? 'alerta' : ''}"><small>Comissões por pagar</small><b>${eur(totComPorPagar)}</b><small>${comPorPagar.length} comiss${comPorPagar.length === 1 ? 'ão' : 'ões'} a revendedores</small></div>
+      <div class="${porReceber ? 'alerta' : ''}"><small>Pagamentos por receber</small><b>${porReceber}</b><small>registados como não pagos</small></div>
+    </div>
+    <div class="hf-acoes">
+      <button type="button" class="btn sm hero-btn" data-ir-tab="financeiro">Ver Financeiro</button>
+      <button type="button" class="btn sm hero-btn" data-ir-tab="revendedores">Pagar comissões</button>
+      ${porReceber ? '<button type="button" class="btn sm hero-btn" data-ir-sec="por_receber">Ver por receber</button>' : ''}
+    </div>`;
+  el.classList.remove('hidden');
+}
+$('#hero-fecho').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-ir-tab]'), sc = e.target.closest('[data-ir-sec]');
+  if (t) { $(`.tab[data-tab="${t.dataset.irTab}"]`).click(); window.scrollTo({ top: 0 }); }
+  if (sc) { SEC_FECHADAS.delete(sc.dataset.irSec); aplicarSecoes(); $(`#tab-painel .sec[data-sec="${sc.dataset.irSec}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+});
 $('#hero-pills').addEventListener('click', (e) => {
   const k = e.target.closest('[data-ir]')?.dataset.ir;
   if (!k) return;

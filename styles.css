@@ -399,6 +399,22 @@ code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 1
 .btn.hero-btn { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.25); }
 .btn.hero-btn:hover { background: rgba(255,255,255,.22); border-color: rgba(255,255,255,.4); }
 
+/* Aviso de fecho do mês (no cabeçalho) */
+.hero-fecho { grid-column: 1 / -1; border-radius: 14px; padding: 14px 16px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,200,87,.55);
+  box-shadow: inset 4px 0 0 #fbbf24; backdrop-filter: blur(8px); display: grid; gap: 12px; animation: subir .5s cubic-bezier(.2,.8,.2,1) both; }
+.hf-titulo { display: flex; gap: 12px; align-items: flex-start; }
+.hf-titulo b { display: block; font-size: 15px; }
+.hf-titulo span { display: block; color: rgba(255,255,255,.78); font-size: 13px; margin-top: 2px; }
+.hf-ico { font-size: 22px; line-height: 1; }
+.hf-numeros { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.hf-numeros > div { background: rgba(255,255,255,.08); border-radius: 10px; padding: 8px 10px; }
+.hf-numeros > div.alerta { background: rgba(251,191,36,.18); }
+.hf-numeros small { display: block; font-size: 11px; color: rgba(255,255,255,.7); }
+.hf-numeros b { display: block; font-size: 18px; margin: 2px 0; font-variant-numeric: tabular-nums; }
+.hf-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.hf-acoes .hero-btn { margin-left: 0; }
+@media (max-width: 860px) { .hf-numeros { grid-template-columns: 1fr 1fr; } .hf-acoes .hero-btn { flex: 1; } }
+
 /* Indicadores */
 .kpi { position: relative; overflow: hidden; border-radius: 14px; padding: 16px 16px 14px; transition: transform .15s, box-shadow .15s, border-color .15s; }
 .kpi::before { content: ""; position: absolute; left: 0; top: 0; right: 0; height: 3px; background: var(--kc, var(--line)); }
