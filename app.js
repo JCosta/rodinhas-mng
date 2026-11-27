@@ -1048,23 +1048,17 @@ function campoHW(valor) {
   if (valor && !opcoes.includes(valor)) opcoes.push(valor);
   return `<select name="hw"><option value="">—</option>${opcoes.map((o) => `<option ${o === valor ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
 }
-/** Lista de Types: os definidos em Configuração + os já usados + "Outro…" para escrever um novo */
+/** Lista de Types: só os configurados (Configuração → Types). Um valor antigo não configurado mantém-se, assinalado. */
 function campoType(valor) {
-  const opcoes = [...new Set([...S.custos.map((c) => c.type), ...unicos('type'), ...(valor ? [valor] : [])])].sort((a, b) => a.localeCompare(b, 'pt'));
-  return `<select name="type" data-type-sel>
+  const conf = S.custos.map((c) => c.type).sort((a, b) => a.localeCompare(b, 'pt'));
+  const antigo = valor && !conf.includes(valor);
+  return `<select name="type">
       <option value="">— sem Type —</option>
-      ${opcoes.map((o) => `<option value="${esc(o)}" ${o === valor ? 'selected' : ''}>${esc(o)}${S.custos.some((c) => c.type === o) ? '' : ' (sem custo definido)'}</option>`).join('')}
-      <option value="__outro">Outro… (escrever)</option>
+      ${conf.map((o) => `<option value="${esc(o)}" ${o === valor ? 'selected' : ''}>${esc(o)}</option>`).join('')}
+      ${antigo ? `<option value="${esc(valor)}" selected>${esc(valor)} (não configurado)</option>` : ''}
     </select>
-    <input name="type_novo" class="hidden" placeholder="Novo Type" maxlength="40" style="margin-top:6px">`;
+    ${conf.length ? '' : '<small class="muted">Ainda não há Types configurados — cria-os em Configuração.</small>'}`;
 }
-document.addEventListener('change', (e) => {
-  const sel = e.target.closest('[data-type-sel]');
-  if (!sel) return;
-  const novo = sel.parentElement.querySelector('[name=type_novo]');
-  novo.classList.toggle('hidden', sel.value !== '__outro');
-  if (sel.value === '__outro') novo.focus();
-});
 const datalist = (id, campo) => `<datalist id="${id}">${unicos(campo).map((o) => `<option value="${esc(o)}">`).join('')}</datalist>`;
 
 async function abrirSub(id, opc = {}) {
@@ -1115,7 +1109,7 @@ async function abrirSub(id, opc = {}) {
     const reg = {
       code: t('code'),
       owner: t('owner'),
-      type: f.get('type') === '__outro' ? t('type_novo') : t('type'),
+      type: t('type'),
       hw: t('hw'),
       periodicity: f.get('periodicity'),
       value: Number(f.get('value')) || 0,
