@@ -415,6 +415,12 @@ code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 1
 .hf-acoes .hero-btn { margin-left: 0; }
 @media (max-width: 860px) { .hf-numeros { grid-template-columns: 1fr 1fr; } .hf-acoes .hero-btn { flex: 1; } }
 
+/* Seletor segmentado (período) */
+.seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg button { border: none; background: transparent; color: var(--muted); font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
+.seg button:hover { color: var(--text); }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(16,24,40,.12); }
+
 /* Indicadores */
 .kpi { position: relative; overflow: hidden; border-radius: 14px; padding: 16px 16px 14px; transition: transform .15s, box-shadow .15s, border-color .15s; }
 .kpi::before { content: ""; position: absolute; left: 0; top: 0; right: 0; height: 3px; background: var(--kc, var(--line)); }

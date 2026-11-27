@@ -1,5 +1,5 @@
 import { createClient } from './vendor/supabase-js-2.119.2.mjs';   // alojado no próprio site (sem CDN de terceiros)
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS, SESSAO_MAX_HORAS } from './config.js?v=202611270954';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS, SESSAO_MAX_HORAS } from './config.js?v=202611270958';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -835,6 +835,14 @@ $('#cal-seg').addEventListener('click', () => { calMes = somaMeses(calMes + '-01
 $('#cal-hoje').addEventListener('click', () => { calMes = hojeISO().slice(0, 7); calDia = hojeISO(); renderCalendario(); });
 
 // ---------------------------------------------------------------- financeiro
+let finPeriodoMetodos = (() => { try { return Number(JSON.parse(localStorage.getItem('fin.periodoMetodos'))) || 12; } catch { return 12; } })();   // 1, 6 ou 12 meses
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-seg-metodos] button');
+  if (!b) return;
+  finPeriodoMetodos = Number(b.dataset.p);
+  try { localStorage.setItem('fin.periodoMetodos', JSON.stringify(finPeriodoMetodos)); } catch { /* */ }
+  renderFinanceiro();
+});
 function renderFinanceiro() {
   const ligados = S.subs.filter((s) => LIGADOS.includes(s.status));
   const somaK = (arr, k) => arr.reduce((t, s) => t + Number(s[k] || 0), 0);
@@ -892,11 +900,17 @@ function renderFinanceiro() {
     <tbody>${meses.map((m) => `<tr><td>${m.rot}</td><td class="num">${m.n}</td><td class="num">${eur(m.r)}</td><td class="num">${eur(m.c)}</td><td class="num">${eur(m.k)}</td><td class="num ${m.l < 0 ? 'neg' : ''}">${eur(m.l)}</td></tr>`).join('')}</tbody>
     <tfoot><tr><td>12 meses</td><td class="num">${tp.n}</td><td class="num">${eur(tp.r)}</td><td class="num">${eur(tp.c)}</td><td class="num">${eur(tp.k)}</td><td class="num ${tp.l < 0 ? 'neg' : ''}">${eur(tp.l)}</td></tr></tfoot>`;
 
-  // ---- por método de pagamento (12 meses, só pagos)
+  // ---- por método de pagamento (só pagos; período escolhido: este mês / 6 / 12 meses)
   const mesAtual = hojeISO().slice(0, 7);
+  const desdeMes = somaMeses(mesAtual + '-01', -(finPeriodoMetodos - 1)).slice(0, 7);
+  const nomePeriodo = finPeriodoMetodos === 1
+    ? new Date().toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' })
+    : `últimos ${finPeriodoMetodos} meses (desde ${new Date(desdeMes + '-01T12:00:00').toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' })})`;
+  $$('.fin-periodo-txt').forEach((el) => { el.textContent = `Pagamentos registados como pagos · ${nomePeriodo}`; });
+  $$('[data-seg-metodos] button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.p) === finPeriodoMetodos)));
   const porM = new Map();
   for (const p of S.pagamentos) {
-    if (!p.paid) continue;
+    if (!p.paid || String(p.payment_date).slice(0, 7) < desdeMes) continue;
     const k = p.payment_method || 'Sem método';
     const x = porM.get(k) || { n: 0, v: 0, c: 0, mes: 0 };
     x.n += 1; x.v += Number(p.value || 0); x.c += Number(p.commission || 0);
@@ -925,7 +939,7 @@ function renderFinanceiro() {
   }
   graficoLinha($('#fin-graf-recebido'), hist.map((h) => ({ rot: h.rot, v: h.v, n: h.n })));
   barrasH($('#fin-graf-types'), linhasT.map((x) => ({ rot: x.t, v: x.l, cor: corType(x.t === '—' ? null : x.t), sub: `${x.n} subscritor${x.n === 1 ? '' : 'es'}` })), 'lucro líquido / mês');
-  barrasH($('#fin-graf-metodos'), metodosL.map(([k, x]) => ({ rot: k, v: x.v, cor: k === 'Sem método' ? 'var(--off)' : `var(--cat-${(Math.max(0, S.metodos.indexOf(k)) % 8) + 1})`, sub: `${x.n} pagamento${x.n === 1 ? '' : 's'}` })), 'recebido em 12 meses');
+  barrasH($('#fin-graf-metodos'), metodosL.map(([k, x]) => ({ rot: k, v: x.v, cor: k === 'Sem método' ? 'var(--off)' : `var(--cat-${(Math.max(0, S.metodos.indexOf(k)) % 8) + 1})`, sub: `${x.n} pagamento${x.n === 1 ? '' : 's'}` })), 'recebido no período');
   const th = hist.reduce((a, h) => ({ n: a.n + h.n, v: a.v + h.v, c: a.c + h.c, pend: a.pend + h.pend }), { n: 0, v: 0, c: 0, pend: 0 });
   $('#fin-historico').innerHTML = `<thead><tr><th>Mês</th><th class="num">Pagamentos</th><th class="num">Recebido</th><th class="num">Comissões</th><th class="num">Recebido − comissões</th><th class="num">Registado como não pago</th></tr></thead>
     <tbody>${hist.reverse().map((h) => `<tr><td>${h.rot}</td><td class="num">${h.n}</td><td class="num">${eur(h.v)}</td><td class="num">${eur(h.c)}</td><td class="num">${eur(h.v - h.c)}</td><td class="num">${h.pend ? eur(h.pend) : '—'}</td></tr>`).join('')}</tbody>

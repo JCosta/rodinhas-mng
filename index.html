@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <script src="theme.js"></script>
-  <link rel="stylesheet" href="styles.css?v=202611270954">
+  <link rel="stylesheet" href="styles.css?v=202611270958">
 </head>
 <body>
   <!-- Login -->
@@ -192,7 +192,7 @@
         </div>
         <div class="grid2">
           <div class="card"><div class="card-head"><h2>Lucro líquido mensal por Type</h2></div><div id="fin-graf-types"></div></div>
-          <div class="card"><div class="card-head"><h2>Recebido por método</h2><span class="muted">12 meses</span></div><div id="fin-graf-metodos"></div></div>
+          <div class="card"><div class="card-head"><h2>Recebido por método</h2><div class="seg" role="group" aria-label="Período" data-seg-metodos><button type="button" data-p="1">Este mês</button><button type="button" data-p="6">6 meses</button><button type="button" data-p="12">12 meses</button></div></div><p class="muted small fin-periodo-txt" style="margin:-4px 0 12px"></p><div id="fin-graf-metodos"></div></div>
         </div>
         <div class="card">
           <div class="card-head"><h2>Por Type</h2><span class="muted">valores mensais médios dos subscritores ligados</span></div>
@@ -204,7 +204,7 @@
           <div class="scroll" style="border:none;max-height:none;margin-top:14px"><table class="tabela" id="fin-previsao"></table></div>
         </div>
         <div class="card">
-          <div class="card-head"><h2>Por método de pagamento</h2><span class="muted">pagamentos registados como pagos · últimos 12 meses</span></div>
+          <div class="card-head"><h2>Por método de pagamento</h2><div class="seg" role="group" aria-label="Período" data-seg-metodos><button type="button" data-p="1">Este mês</button><button type="button" data-p="6">6 meses</button><button type="button" data-p="12">12 meses</button></div></div><p class="muted small fin-periodo-txt" style="margin:-4px 0 12px"></p>
           <div class="scroll" style="border:none;max-height:none"><table class="tabela" id="fin-metodos"></table></div>
         </div>
         <div class="card">
@@ -385,6 +385,6 @@
   <div id="toast" class="toast hidden"></div>
   <div id="toast-desfazer" class="toast desfazer hidden" role="status"></div>
 
-  <script type="module" src="app.js?v=202611270954"></script>
+  <script type="module" src="app.js?v=202611270958"></script>
 </body>
 </html>
