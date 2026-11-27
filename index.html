@@ -18,17 +18,34 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <script src="theme.js"></script>
-  <link rel="stylesheet" href="styles.css?v=202611262350">
+  <link rel="stylesheet" href="styles.css?v=202611270939">
 </head>
 <body>
   <!-- Login -->
   <section id="login-view" class="login hidden">
+    <aside class="login-marca" aria-hidden="true">
+      <div class="lm-fundo"><span class="lm-orbe o1"></span><span class="lm-orbe o2"></span><span class="lm-orbe o3"></span><span class="lm-grelha"></span></div>
+      <div class="lm-topo"><img src="icons/icon-192.png" alt="" width="40" height="40"><span>Rodinhas</span></div>
+      <div class="lm-centro">
+        <p class="lm-kicker">Gestão de avenças</p>
+        <h2 class="lm-titulo">Renovações em dia.<br><span>Clientes sempre ligados.</span></h2>
+        <ul class="lm-pontos">
+          <li><i>⏰</i><div><b>Nada escapa</b><span>Quem vence, quem está em atraso e o que fazer hoje.</span></div></li>
+          <li><i>🤝</i><div><b>Revendedores e comissões</b><span>Saiba o que está pago e o que falta pagar.</span></div></li>
+          <li><i>🔐</i><div><b>Dados protegidos</b><span>Verificação em 2 passos, auditoria e backups encriptados.</span></div></li>
+        </ul>
+      </div>
+      <div class="lm-rodape">© Rodinhas · acesso reservado</div>
+    </aside>
+    <div class="login-forms">
     <form id="login-form" class="login-card">
-      <h1>Gestão de Avenças</h1>
-      <p class="muted">Entra com a tua conta.</p>
+      <div class="lc-logo"><img src="icons/icon-192.png" alt="" width="44" height="44"></div>
+      <h1>Bem-vindo de volta</h1>
+      <p class="muted">Entra para gerir subscritores, renovações e pagamentos.</p>
       <label>Email <input type="email" name="email" required autocomplete="username"></label>
       <label>Password <input type="password" name="password" required autocomplete="current-password"></label>
-      <button type="submit" class="btn primary">Entrar</button>
+      <button type="submit" class="btn primary lc-entrar">Entrar <span aria-hidden="true">→</span></button>
+      <p class="lc-seguro">🔒 Ligação segura · verificação em 2 passos</p>
       <p id="login-erro" class="erro"></p>
     </form>
 
@@ -53,6 +70,7 @@
       <button type="button" class="btn ghost" data-sair>Usar outra conta</button>
       <p class="erro" id="mfa-erro"></p>
     </form>
+    </div>
   </section>
 
   <!-- App -->
@@ -358,6 +376,6 @@
   <div id="toast" class="toast hidden"></div>
   <div id="toast-desfazer" class="toast desfazer hidden" role="status"></div>
 
-  <script type="module" src="app.js?v=202611262350"></script>
+  <script type="module" src="app.js?v=202611270939"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 import { createClient } from './vendor/supabase-js-2.119.2.mjs';   // alojado no próprio site (sem CDN de terceiros)
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS, SESSAO_MAX_HORAS } from './config.js?v=202611262350';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS, SESSAO_MAX_HORAS } from './config.js?v=202611270939';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
