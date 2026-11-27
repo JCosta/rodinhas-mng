@@ -1,5 +1,5 @@
 import { createClient } from './vendor/supabase-js-2.119.2.mjs';   // alojado no próprio site (sem CDN de terceiros)
-import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS, SESSAO_MAX_HORAS } from './config.js?v=202611270939';
+import { SUPABASE_URL, SUPABASE_KEY, DIAS_AVISO, HW_OPCOES, SESSAO_MINUTOS, SESSAO_MAX_HORAS } from './config.js?v=202611270946';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -343,15 +343,14 @@ function renderPainel() {
   const desligados = por('desligado').sort((a, b) => b.days_left - a.days_left);    // mais recente primeiro
   const arquivados = por('arquivado').sort((a, b) => String(a.code).localeCompare(String(b.code), 'pt', { numeric: true }));
 
-  $('#kpis').innerHTML = `
-    <div class="kpi"><div class="lbl">${EMO.ligados} Ligados</div><div class="val">${ligados.length}</div>
-      <div class="sub">${ligados.filter((s) => s.periodicity === 'semestral').length} semestrais · ${ligados.filter((s) => s.periodicity === 'anual').length} anuais</div></div>
-    <div class="kpi warn" data-ir="a_terminar"><div class="lbl">${EMO.a_terminar} A vencer (${DIAS_AVISO} dias)</div><div class="val">${aTerminar.length}</div>
-      <div class="sub">${aTerminar.filter((s) => s.last_notified_at).length} já avisados</div></div>
-    <div class="kpi late" data-ir="em_atraso"><div class="lbl">${EMO.em_atraso} Em atraso</div><div class="val">${emAtraso.length}</div>
-      <div class="sub">${emAtraso.length ? `o mais antigo há ${-emAtraso[0].days_left} dias` : 'ligados sem pagamento'}</div></div>
-    <div class="kpi bad" data-ir="desligado"><div class="lbl">${EMO.desligado} Desligados</div><div class="val">${desligados.length}</div><div class="sub">pagamento passado</div></div>
-    <div class="kpi off" data-ir="arquivado"><div class="lbl">${EMO.arquivado} Arquivados</div><div class="val">${arquivados.length}</div><div class="sub">sem data</div></div>`;
+  const kpi = (cls, ir, emo, lbl, val, sub) => `<div class="kpi ${cls}"${ir ? ` data-ir="${ir}" role="button" tabindex="0"` : ''}>
+      <div class="kpi-topo"><span class="kpi-ico">${emo}</span><span class="lbl">${lbl}</span></div><div class="val">${val}</div><div class="sub">${sub}</div></div>`;
+  $('#kpis').innerHTML =
+    kpi('ok', '', EMO.ligados, 'Ligados', ligados.length, `${ligados.filter((s) => s.periodicity === 'semestral').length} semestrais · ${ligados.filter((s) => s.periodicity === 'anual').length} anuais`) +
+    kpi('warn', 'a_terminar', EMO.a_terminar, `A vencer (${DIAS_AVISO} dias)`, aTerminar.length, `${aTerminar.filter((s) => s.last_notified_at).length} já avisados`) +
+    kpi('late', 'em_atraso', EMO.em_atraso, 'Em atraso', emAtraso.length, emAtraso.length ? `o mais antigo há ${-emAtraso[0].days_left} dias` : 'ligados sem pagamento') +
+    kpi('bad', 'desligado', EMO.desligado, 'Desligados', desligados.length, 'pagamento passado') +
+    kpi('off', 'arquivado', EMO.arquivado, 'Arquivados', arquivados.length, 'sem data');
 
   $('#aviso-dias').textContent = `próximos ${DIAS_AVISO} dias`;
   const item = (s, extra = '') => `<div class="item"${estiloType(s.type)}>
@@ -382,12 +381,42 @@ function renderPainel() {
       <button class="btn sm primary" data-pagar="${r.id}">Marcar como pago</button></div>`).join('')
     || `<p class="vazio">${q ? 'Sem resultados para a pesquisa.' : 'Nada por receber. 👌'}</p>`;
 
-  renderHoje(naoPagos);
+  const nHoje = renderHoje(naoPagos);
+  renderHero({ nHoje, aTerminar: aTerminar.length, emAtraso: emAtraso.length, porReceber: naoPagos.length, ligados: ligados.length });
 
   // Com pesquisa ativa, abre as secções que têm resultados (sem alterar a preferência guardada)
   if (q) $$('#tab-painel .sec').forEach((el) => el.classList.toggle('fechada', !$('.item', el)));
   else aplicarSecoes();
 }
+
+// ---------- cabeçalho do painel (saudação + resumo)
+function renderHero(n) {
+  const agora = new Date();
+  const h = agora.getHours();
+  const ola = h < 6 ? 'Boa noite' : h < 13 ? 'Bom dia' : h < 20 ? 'Boa tarde' : 'Boa noite';
+  const email = $('#user-email').textContent || '';
+  const nome = email.split('@')[0].split(/[._-]/)[0];
+  const dataTxt = agora.toLocaleDateString('pt-PT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  $('#hero-data').textContent = dataTxt.charAt(0).toUpperCase() + dataTxt.slice(1);
+  $('#hero-ola').textContent = `${ola}${nome ? ', ' + nome.charAt(0).toUpperCase() + nome.slice(1) : ''} 👋`;
+  $('#hero-resumo').textContent = n.nHoje
+    ? `Tens ${n.nHoje} ${n.nHoje === 1 ? 'ação' : 'ações'} para hoje · ${n.ligados} subscritores ligados.`
+    : `Está tudo em dia · ${n.ligados} subscritores ligados.`;
+  const pill = (ir, emo, v, txt) => `<button type="button" class="pill${v ? '' : ' zero'}" data-ir="${ir}"><span>${emo}</span><b>${v}</b> ${txt}</button>`;
+  $('#hero-pills').innerHTML =
+    pill('hoje', '📌', n.nHoje, n.nHoje === 1 ? 'ação hoje' : 'ações hoje') +
+    pill('a_terminar', '⏰', n.aTerminar, 'a vencer') +
+    pill('em_atraso', '⚠️', n.emAtraso, 'em atraso') +
+    pill('por_receber', '💸', n.porReceber, 'por receber');
+}
+$('#hero-pills').addEventListener('click', (e) => {
+  const k = e.target.closest('[data-ir]')?.dataset.ir;
+  if (!k) return;
+  if (k === 'hoje') return $('#hoje').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  SEC_FECHADAS.delete(k); gravarLS('painel.fechadas', [...SEC_FECHADAS]); aplicarSecoes();
+  $(`#tab-painel .sec[data-sec="${k}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+$('#kpis').addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-ir]')) { e.preventDefault(); e.target.click(); } });
 
 // ---------- urgência, avisos e caixa "Hoje"
 /** a_terminar: vermelho ≤ 7 dias, laranja ≤ 15, amarelo ≤ 30 */
@@ -449,6 +478,7 @@ function renderHoje(naoPagos) {
         (acoes.length > MAX ? `<button class="btn sm ghost mais" id="hoje-mais">${hojeTudo ? 'Mostrar só as 5 mais urgentes' : `Ver todas (${acoes.length})`}</button>` : '')
       : '<p class="ok">✅ Nada urgente hoje.</p>');
   $('#hoje-mais')?.addEventListener('click', () => { hojeTudo = !hojeTudo; renderHoje(naoPagos); });
+  return acoes.length;
 }
 
 document.addEventListener('click', (e) => {
